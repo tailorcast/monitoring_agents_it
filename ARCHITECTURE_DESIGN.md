@@ -216,14 +216,22 @@ class TelegramConfig(BaseModel):
 
 class LLMConfig(BaseModel):
     provider: str = "bedrock"
-    model: str = "anthropic.claude-haiku-4-5"
+    model: str = "us.anthropic.claude-3-5-haiku-20241022-v1:0"  # Full Bedrock model ID
     region: str = "us-east-1"
     max_tokens: int = 4096
     daily_budget_usd: float = 3.0
 
+class TargetsConfig(BaseModel):
+    ec2_instances: List[EC2InstanceConfig] = []
+    vps_servers: List[VPSServerConfig] = []
+    api_endpoints: List[APIEndpointConfig] = []
+    databases: List[DatabaseConfig] = []
+    llm_models: List[LLMModelConfig] = []
+    s3_buckets: List[S3BucketConfig] = []
+
 class MonitoringSystemConfig(BaseModel):
     monitoring: MonitoringConfig
-    targets: dict
+    targets: TargetsConfig
     thresholds: ThresholdsConfig
     telegram: TelegramConfig
     llm: LLMConfig
@@ -265,10 +273,11 @@ class ConfigLoader:
 
 ```python
 from abc import ABC, abstractmethod
-from typing import List, Any
+from typing import List, Any, Optional
 from dataclasses import dataclass
 from enum import Enum
 import logging
+import time
 
 class HealthStatus(Enum):
     GREEN = "green"
@@ -285,7 +294,7 @@ class CollectorResult:
     metrics: dict  # Raw metric values
     message: str   # Human-readable summary
     error: Optional[str] = None
-    timestamp: float = None
+    timestamp: Optional[float] = None
 
     def __post_init__(self):
         if self.timestamp is None:
@@ -304,10 +313,26 @@ class BaseCollector(ABC):
         """Collect metrics and return results"""
         pass
 
-    def _determine_status(self, metric_name: str, value: float) -> HealthStatus:
+    def _determine_status(self, metric_name: str, value: float, higher_is_worse: bool = True) -> HealthStatus:
         """Helper to determine status based on thresholds"""
-        # Implementation: check against self.thresholds
-        pass
+        red_threshold = self.thresholds.get(f"{metric_name}_red")
+        yellow_threshold = self.thresholds.get(f"{metric_name}_yellow")
+
+        if red_threshold is None or yellow_threshold is None:
+            return HealthStatus.UNKNOWN
+
+        if higher_is_worse:
+            if value >= red_threshold:
+                return HealthStatus.RED
+            elif value >= yellow_threshold:
+                return HealthStatus.YELLOW
+            return HealthStatus.GREEN
+        else:
+            if value <= red_threshold:
+                return HealthStatus.RED
+            elif value <= yellow_threshold:
+                return HealthStatus.YELLOW
+            return HealthStatus.GREEN
 ```
 
 **Example Implementation**: `src/collectors/ec2_collector.py`
@@ -379,11 +404,11 @@ class EC2Collector(BaseCollector):
 **File**: `src/agents/state.py`
 
 ```python
-from typing import TypedDict, List, Annotated
+from typing import TypedDict, List, Annotated, Optional
 from src.collectors.base import CollectorResult
 import operator
 
-class MonitoringState(TypedDict):
+class MonitoringState(TypedDict, total=False):
     """Shared state across LangGraph workflow"""
 
     # Collection phase outputs
@@ -400,8 +425,8 @@ class MonitoringState(TypedDict):
     issues: List[CollectorResult]  # Only red/yellow items
 
     # AI analysis outputs
-    root_cause_analysis: str
-    recommendations: str
+    root_cause_analysis: dict  # Analysis result from AI
+    recommendations: List[dict]
 
     # Final report
     telegram_message: str
@@ -459,14 +484,12 @@ class MonitoringWorkflow:
         workflow.add_node("generate_report", self._generate_report)
         workflow.add_node("send_telegram", self._send_telegram)
 
-        # Define edges - parallel collection
-        workflow.set_entry_point("collect_ec2")
-        # All collectors run in parallel, then converge at aggregate
-        for collector in ["collect_ec2", "collect_vps", "collect_docker",
-                          "collect_api", "collect_database", "collect_llm", "collect_s3"]:
-            workflow.add_edge(collector, "aggregate")
+        # Define edges
+        # Note: For parallel collection, use asyncio.gather in aggregate node
+        # rather than LangGraph parallel edges for simpler implementation
+        workflow.set_entry_point("aggregate")
 
-        # Sequential processing after aggregation
+        # Sequential processing
         workflow.add_edge("aggregate", "analyze")
         workflow.add_edge("analyze", "generate_report")
         workflow.add_edge("generate_report", "send_telegram")
@@ -482,12 +505,24 @@ class MonitoringWorkflow:
     # Similar methods for other collectors...
 
     async def _aggregate_results(self, state: MonitoringState) -> dict:
-        """Combine all collector results"""
-        all_results = (
-            state.get("ec2_results", []) +
-            state.get("vps_results", []) +
-            # ... other results
-        )
+        """Collect from all collectors in parallel and aggregate results"""
+        import asyncio
+
+        # Run all collectors in parallel
+        collector_tasks = []
+        for collector in self.collectors.values():
+            collector_tasks.append(collector.collect())
+
+        # Wait for all collectors to complete
+        results = await asyncio.gather(*collector_tasks, return_exceptions=True)
+
+        # Flatten all results
+        all_results = []
+        for result in results:
+            if isinstance(result, Exception):
+                self.logger.error(f"Collector failed: {result}")
+                continue
+            all_results.extend(result)
 
         # Filter issues (red or yellow status)
         issues = [r for r in all_results if r.status in [HealthStatus.RED, HealthStatus.YELLOW]]
@@ -517,16 +552,16 @@ class MonitoringWorkflow:
         prompt = self._build_analysis_prompt(state["issues"])
 
         # Call Bedrock
-        response, tokens = await self.bedrock.invoke(prompt)
-        self.budget_tracker.record_usage(tokens)
+        response, usage = self.bedrock.invoke(prompt)
+        self.budget_tracker.record_usage(usage['input_tokens'], usage['output_tokens'])
 
         # Parse response (assuming structured output)
         analysis = self._parse_analysis_response(response)
 
         return {
-            "root_cause_analysis": analysis["root_cause"],
-            "recommendations": analysis["recommendations"],
-            "token_usage": tokens
+            "root_cause_analysis": analysis,
+            "recommendations": analysis.get("recommendations", []),
+            "token_usage": usage['total_tokens']
         }
 
     def _build_analysis_prompt(self, issues: List[CollectorResult]) -> str:
@@ -573,11 +608,13 @@ Format your response as JSON:
 
     async def run(self) -> MonitoringState:
         """Execute the workflow"""
-        initial_state = MonitoringState(
-            execution_start=time.time(),
-            token_usage=0,
-            errors=[]
-        )
+        import time
+
+        initial_state: MonitoringState = {
+            "execution_start": time.time(),
+            "token_usage": 0,
+            "errors": []
+        }
 
         final_state = await self.graph.ainvoke(initial_state)
         return final_state
@@ -592,7 +629,7 @@ Format your response as JSON:
 ```python
 import boto3
 import json
-from typing import Tuple
+from typing import Tuple, Dict
 
 class BedrockClient:
     """Wrapper for Amazon Bedrock with token tracking"""
@@ -600,11 +637,16 @@ class BedrockClient:
     def __init__(self, llm_config: LLMConfig):
         self.config = llm_config
         self.client = boto3.client('bedrock-runtime', region_name=llm_config.region)
-        self.model_id = f"anthropic.{llm_config.model}"
+        # Model ID should already include 'anthropic.' prefix in config
+        self.model_id = llm_config.model
 
-    async def invoke(self, prompt: str, system_prompt: str = None) -> Tuple[str, int]:
+    def invoke(self, prompt: str, system_prompt: str = None) -> Tuple[str, Dict[str, int]]:
         """
-        Invoke Claude Haiku and return (response, token_count)
+        Invoke Claude Haiku and return (response, token_usage_dict)
+
+        Returns:
+            response: String response from model
+            usage: {"input_tokens": int, "output_tokens": int, "total_tokens": int}
         """
         request_body = {
             "anthropic_version": "bedrock-2023-05-31",
@@ -632,7 +674,13 @@ class BedrockClient:
         # Extract text
         content = response_body['content'][0]['text']
 
-        return content, total_tokens
+        usage = {
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "total_tokens": total_tokens
+        }
+
+        return content, usage
 ```
 
 **File**: `src/services/budget_tracker.py`
@@ -656,7 +704,7 @@ class BudgetTracker:
 
     def can_make_request(self, estimated_tokens: int = 10000) -> bool:
         """Check if request is within budget"""
-        estimated_cost = self._calculate_cost(estimated_tokens)
+        estimated_cost = self._calculate_cost(estimated_tokens, estimated_tokens)
         return (self.today_spent + estimated_cost) < self.daily_budget
 
     def record_usage(self, input_tokens: int, output_tokens: int):
@@ -668,6 +716,13 @@ class BudgetTracker:
 
         self.today_spent += cost
         self._save_state()
+
+    def _calculate_cost(self, input_tokens: int, output_tokens: int) -> float:
+        """Calculate cost for given token usage"""
+        return (
+            (input_tokens / 1_000_000) * self.INPUT_PRICE_PER_1M +
+            (output_tokens / 1_000_000) * self.OUTPUT_PRICE_PER_1M
+        )
 
     def _load_state(self):
         """Load daily spending from file"""

@@ -37,7 +37,7 @@
    python-telegram-bot>=20.8
    pyyaml>=6.0
    pydantic>=2.5.0
-   schedule>=1.2.0
+   apscheduler>=3.10.0
    python-json-logger>=2.0.7
    pytest>=7.4.0
    pytest-asyncio>=0.21.0
@@ -138,13 +138,12 @@
        UNKNOWN = "unknown"
 
        def to_emoji(self) -> str:
-           mapping = {
-               self.GREEN: "🟢",
-               self.YELLOW: "🟡",
-               self.RED: "🔴",
-               self.UNKNOWN: "⚪"
-           }
-           return mapping[self]
+           return {
+               HealthStatus.GREEN: "🟢",
+               HealthStatus.YELLOW: "🟡",
+               HealthStatus.RED: "🔴",
+               HealthStatus.UNKNOWN: "⚪"
+           }[self]
    ```
 
 3. Implement `src/utils/metrics.py`:
@@ -1255,12 +1254,21 @@ Analyze and respond in JSON format:
        results = await self.collectors["ec2"].collect()
        return {"ec2_results": results}
 
-   # Aggregation node
+   # Aggregation node (with parallel collection)
    async def _aggregate_results(self, state: MonitoringState) -> dict:
+       import asyncio
+
+       # Run all collectors in parallel
+       collector_tasks = [collector.collect() for collector in self.collectors.values()]
+       results = await asyncio.gather(*collector_tasks, return_exceptions=True)
+
+       # Flatten results
        all_results = []
-       for key in ['ec2_results', 'vps_results', 'docker_results',
-                   'api_results', 'database_results', 'llm_results', 's3_results']:
-           all_results.extend(state.get(key, []))
+       for result in results:
+           if isinstance(result, Exception):
+               self.logger.error(f"Collector failed: {result}")
+               continue
+           all_results.extend(result)
 
        issues = [r for r in all_results if r.status in [HealthStatus.RED, HealthStatus.YELLOW]]
 
@@ -1281,31 +1289,23 @@ Analyze and respond in JSON format:
        return {"telegram_message": report}
    ```
 
-3. Configure parallel execution:
+3. Configure workflow execution:
    ```python
    # In _build_graph()
    from langgraph.graph import StateGraph, END
 
    workflow = StateGraph(MonitoringState)
 
-   # Add all nodes
-   for collector in ["ec2", "vps", "docker", "api", "database", "llm", "s3"]:
-       workflow.add_node(f"collect_{collector}", getattr(self, f"_collect_{collector}"))
-
+   # Add processing nodes only (collectors called within aggregate)
    workflow.add_node("aggregate", self._aggregate_results)
    workflow.add_node("analyze", self._ai_analysis)
    workflow.add_node("generate_report", self._generate_report)
    workflow.add_node("send_telegram", self._send_telegram)
 
-   # Set parallel entry points (LangGraph will run them concurrently)
-   workflow.set_entry_point("collect_ec2")
-   # Note: LangGraph 0.2+ supports parallel edges; check docs for syntax
+   # Set entry point
+   workflow.set_entry_point("aggregate")
 
-   # All collectors converge to aggregate
-   for collector in ["ec2", "vps", "docker", "api", "database", "llm", "s3"]:
-       workflow.add_edge(f"collect_{collector}", "aggregate")
-
-   # Sequential after aggregation
+   # Sequential processing
    workflow.add_edge("aggregate", "analyze")
    workflow.add_edge("analyze", "generate_report")
    workflow.add_edge("generate_report", "send_telegram")
@@ -1313,6 +1313,9 @@ Analyze and respond in JSON format:
 
    return workflow.compile()
    ```
+
+   **Note**: Parallel collection happens inside the `_aggregate_results` node using `asyncio.gather()`,
+   not through LangGraph parallel edges. This is simpler and more reliable.
 
 **Test Cases**:
 - Test workflow execution with mocked collectors
@@ -1322,9 +1325,10 @@ Analyze and respond in JSON format:
 
 **Acceptance Criteria**:
 - [ ] LangGraph workflow compiles successfully
-- [ ] All collector nodes execute in parallel
+- [ ] All collectors execute in parallel within aggregate node
 - [ ] State propagates correctly through workflow
 - [ ] Workflow completes end-to-end
+- [ ] Error handling works for failed collectors
 
 ---
 
