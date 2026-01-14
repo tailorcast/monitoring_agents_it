@@ -113,7 +113,7 @@ class LLMConfig(BaseModel):
     provider: str = "bedrock"
     model: str = "us.anthropic.claude-3-5-haiku-20241022-v1:0"  # Full Bedrock model ID
     region: str = "us-east-1"
-    max_tokens: int = Field(default=4096, ge=100, le=100000)
+    max_tokens: int = Field(default=4096, ge=100, le=1000000)
     daily_budget_usd: float = Field(default=3.0, ge=0.1)
 
 

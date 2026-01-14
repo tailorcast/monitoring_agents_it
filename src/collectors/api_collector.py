@@ -1,10 +1,14 @@
 """API endpoint health check collector."""
 
-import httpx
 import asyncio
 import time
 from typing import List
 import logging
+
+try:
+    import httpx
+except ImportError:
+    httpx = None
 
 from ..config.models import APIEndpointConfig
 from ..utils.status import HealthStatus
@@ -39,6 +43,17 @@ class APICollector(BaseCollector):
         Returns:
             List[CollectorResult]: Health check results for all endpoints
         """
+        if httpx is None:
+            self.logger.warning("httpx library not available")
+            return [CollectorResult(
+                collector_name="api",
+                target_name="all",
+                status=HealthStatus.UNKNOWN,
+                metrics={},
+                message="httpx library not installed",
+                error="httpx not available"
+            )]
+
         if not self.config:
             self.logger.info("No API endpoints configured")
             return []

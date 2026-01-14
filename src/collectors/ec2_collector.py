@@ -182,25 +182,18 @@ class EC2Collector(BaseCollector):
         Raises:
             Exception: If instance not found or API error
         """
-        try:
-            response = ec2_client.describe_instances(InstanceIds=[instance_id])
+        response = ec2_client.describe_instances(InstanceIds=[instance_id])
 
-            if not response['Reservations']:
-                raise ValueError(f"Instance {instance_id} not found")
+        if not response['Reservations']:
+            raise ValueError(f"Instance {instance_id} not found")
 
-            instance = response['Reservations'][0]['Instances'][0]
+        instance = response['Reservations'][0]['Instances'][0]
 
-            return {
-                'state': instance['State']['Name'],  # running, stopped, terminated, etc.
-                'instance_type': instance.get('InstanceType', 'unknown'),
-                'launch_time': instance.get('LaunchTime')
-            }
-
-        except ec2_client.exceptions.ClientError as e:
-            error_code = e.response['Error']['Code']
-            if error_code == 'InvalidInstanceID.NotFound':
-                raise ValueError(f"Instance {instance_id} not found")
-            raise
+        return {
+            'state': instance['State']['Name'],  # running, stopped, terminated, etc.
+            'instance_type': instance.get('InstanceType', 'unknown'),
+            'launch_time': instance.get('LaunchTime')
+        }
 
     def _get_cpu_utilization(
         self,
