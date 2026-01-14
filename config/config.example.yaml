@@ -1,0 +1,88 @@
+# IT Infrastructure Monitoring Configuration
+# Copy this file to config.yaml and customize for your environment
+
+monitoring:
+  # Cron schedule: minute hour day month weekday
+  # Examples:
+  #   "0 */6 * * *"   - Every 6 hours
+  #   "0 */1 * * *"   - Every hour
+  #   "0 0 * * *"     - Daily at midnight
+  schedule: "0 */6 * * *"
+
+targets:
+  # EC2 Instances (AWS)
+  ec2_instances:
+    - instance_id: "i-1234567890abcdef0"
+      name: "prod-api-server-1"
+      region: "us-east-1"
+    # Add more EC2 instances as needed
+    # - instance_id: "i-0987654321fedcba0"
+    #   name: "prod-db-server"
+    #   region: "us-east-1"
+
+  # VPS Servers (SSH access)
+  vps_servers:
+    - host: "192.168.1.100"
+      name: "kz-vps-01"
+      ssh_key_path: "/app/secrets/kz_vps_key"
+      port: 22
+      username: "ubuntu"
+
+  # API Endpoints
+  api_endpoints:
+    - url: "https://api.example.com/health"
+      name: "Main API Health"
+      timeout_ms: 5000
+    - url: "https://api.example.com/ping"
+      name: "Main API Ping"
+      timeout_ms: 3000
+    # Add your 50 API endpoints here
+
+  # PostgreSQL Databases
+  databases:
+    - host: "prod-db.example.com"
+      port: 5432
+      database: "main_db"
+      table: "health_metrics"  # Optional: table to query for stats
+      ssl_mode: "require"
+
+  # LLM Model Availability
+  llm_models:
+    - provider: "bedrock"
+      model_id: "us.anthropic.claude-3-5-haiku-20241022-v1:0"
+    - provider: "azure"
+      endpoint: "https://your-resource.openai.azure.com"
+
+  # S3 Buckets
+  s3_buckets:
+    - bucket: "product-gen-media-tailorcast"
+      region: "us-east-1"
+
+# Health Thresholds
+thresholds:
+  # CPU and RAM (higher is worse)
+  cpu_red: 90        # % usage to trigger RED status
+  cpu_yellow: 70     # % usage to trigger YELLOW status
+  ram_red: 90
+  ram_yellow: 70
+
+  # Disk space (lower is worse)
+  disk_free_red: 10      # % free space to trigger RED
+  disk_free_yellow: 20   # % free space to trigger YELLOW
+
+  # API response times (milliseconds)
+  api_timeout_ms: 5000   # Timeout = RED
+  api_slow_ms: 2000      # Slow but responding = YELLOW
+
+# Telegram Configuration
+telegram:
+  bot_token: "${TELEGRAM_BOT_TOKEN}"  # Will be substituted from env var
+  chat_id: "${TELEGRAM_CHAT_ID}"
+
+# LLM Configuration
+llm:
+  provider: "bedrock"
+  model: "us.anthropic.claude-3-5-haiku-20241022-v1:0"
+  region: "us-east-1"
+  max_tokens: 4096
+  daily_budget_usd: 3.0  # Maximum daily LLM cost
