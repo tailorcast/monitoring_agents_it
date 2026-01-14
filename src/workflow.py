@@ -278,26 +278,44 @@ class MonitoringWorkflow:
         """
         Send report via Telegram.
 
-        Note: This is a placeholder. Actual Telegram sending will be
-        implemented in Sprint 4 with TelegramClient.
-
         Args:
             state: Current workflow state with telegram_message
 
         Returns:
-            dict: Empty dict (no state updates)
+            dict: Dict with delivery status
         """
         message = state.get('telegram_message', '')
 
-        self.logger.info("Telegram delivery node (placeholder - message not actually sent)")
-        self.logger.debug(f"Message preview:\n{message[:200]}...")
+        if not message:
+            self.logger.warning("No Telegram message to send")
+            return {"telegram_sent": False}
 
-        # TODO: Implement actual Telegram sending in Sprint 4
-        # from .services.telegram_client import TelegramClient
-        # telegram = TelegramClient(self.config.telegram)
-        # await telegram.send_message(message)
+        self.logger.info("Sending report via Telegram")
 
-        return {}
+        try:
+            # Import here to handle optional dependency
+            from .services.telegram_client import TelegramClient
+
+            telegram = TelegramClient(self.config.telegram, self.logger)
+            success = await telegram.send_message(message)
+
+            if success:
+                self.logger.info("Telegram report delivered successfully")
+            else:
+                self.logger.error("Failed to deliver Telegram report")
+
+            return {"telegram_sent": success}
+
+        except ImportError as e:
+            self.logger.error(
+                f"Telegram library not available: {e}. "
+                "Install with: pip install python-telegram-bot>=20.8"
+            )
+            return {"telegram_sent": False}
+
+        except Exception as e:
+            self.logger.error(f"Telegram delivery failed: {e}", exc_info=True)
+            return {"telegram_sent": False}
 
     async def run(self) -> MonitoringState:
         """

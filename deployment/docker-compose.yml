@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  monitoring-agent:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile
+    container_name: monitoring-agent
+
+    # Mount configuration and secrets
+    volumes:
+      - ../config:/app/config:ro
+      - ../secrets:/app/secrets:ro
+      # Optional: persist logs
+      - monitoring-logs:/app/logs
+
+    # Load environment variables
+    env_file:
+      - ../.env
+
+    # Environment overrides (optional)
+    environment:
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - PYTHONUNBUFFERED=1
+
+    # Restart policy
+    restart: unless-stopped
+
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    # Resource limits (optional but recommended)
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+    # Network mode (optional - use host if needed for SSH access)
+    # network_mode: "host"
+
+volumes:
+  monitoring-logs:
+    driver: local
