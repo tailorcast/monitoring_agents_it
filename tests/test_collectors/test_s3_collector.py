@@ -255,7 +255,7 @@ async def test_s3_collector_multiple_buckets(s3_configs, thresholds, logger):
         results = await collector.collect()
 
         # Verify all buckets checked
-        assert len(results) == 2
+        assert len(results) == len(s3_configs)
         assert all(r.status == HealthStatus.GREEN for r in results)
 
 
@@ -308,7 +308,7 @@ async def test_s3_collector_parallel_execution(s3_configs, thresholds, logger):
 
         # Should complete quickly (parallel execution)
         assert duration < 2.0
-        assert len(results) == 2
+        assert len(results) == len(s3_configs)
 
 
 @pytest.mark.asyncio
