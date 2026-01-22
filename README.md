@@ -28,9 +28,9 @@ Built with:
 
 | Resource Type | Metrics Collected | Status Logic |
 |---------------|-------------------|--------------|
-| **EC2 Instances** | CPU utilization, instance state | CloudWatch metrics + thresholds |
+| **EC2 Instances** | CPU utilization, instance state | CloudWatch metrics + thresholds (15-min lookback) |
 | **VPS Servers** | CPU, RAM, disk usage | SSH commands (top, free, df) |
-| **Docker Containers** | Container status, health checks | docker ps parsing |
+| **Docker Containers** | Container status, health checks | docker ps parsing, exit 0 = healthy |
 | **API Endpoints** | Response time, HTTP status | Timeout and latency thresholds |
 | **PostgreSQL DBs** | Connectivity, version, table stats | Connection success/failure |
 | **LLM Models** | Model availability | Minimal test invocations |
@@ -59,6 +59,16 @@ cd monitoring_agents
 pip install -r deployment/requirements.txt
 ```
 
+Required packages include:
+- `python-dotenv>=1.0.0` - Loads environment variables from `.env` file
+- `boto3>=1.34.0` - AWS SDK for EC2, CloudWatch, S3, and Bedrock
+- `paramiko>=3.4.0` - SSH connections for VPS/Docker monitoring
+- `python-telegram-bot>=20.8` - Telegram notifications
+- `httpx>=0.26.0` - Async HTTP client for API checks
+- `psycopg2-binary>=2.9.9` - PostgreSQL database checks
+- `langgraph>=0.1.0` - Workflow orchestration
+- `apscheduler>=3.10.0` - Cron-based scheduling
+
 ### Step 3: Configure Environment Variables
 
 Create `.env` file from template:
@@ -72,15 +82,15 @@ Edit `.env` with your credentials:
 ```bash
 # AWS Configuration
 AWS_REGION=us-east-1
-AWS_ACCESS_KEY_ID=your_access_key_here
-AWS_SECRET_ACCESS_KEY=your_secret_key_here
+AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
+AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
 
 # Telegram Configuration
-TELEGRAM_BOT_TOKEN=your_telegram_bot_token_here
-TELEGRAM_CHAT_ID=your_telegram_chat_id_here
+TELEGRAM_BOT_TOKEN=123456789:ABCdefGHIjklMNOpqrSTUVwxyz
+TELEGRAM_CHAT_ID=123456789
 
 # SSH Keys (if using VPS/Docker monitoring)
-VPS_SSH_KEY_PATH=/app/secrets/kz_vps_key
+VPS_SSH_KEY_PATH=./secrets/
 
 # Database Credentials (if using database monitoring)
 POSTGRES_USER=monitoring_user
@@ -93,6 +103,8 @@ AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com
 # Logging
 LOG_LEVEL=INFO
 ```
+
+**Important**: The system uses `python-dotenv` to automatically load environment variables from the `.env` file. This is required for AWS credentials to be used by boto3 clients.
 
 ### Step 4: Configure Monitoring Targets
 
@@ -245,7 +257,7 @@ Required AWS permissions for the monitoring user/role:
       "Action": [
         "ec2:DescribeInstances",
         "cloudwatch:GetMetricStatistics",
-        "s3:HeadBucket",
+        "cloudwatch:ListMetrics",
         "s3:ListBucket",
         "s3:GetBucketLocation",
         "s3:GetBucketVersioning",
@@ -256,6 +268,11 @@ Required AWS permissions for the monitoring user/role:
   ]
 }
 ```
+
+**Note**:
+- `cloudwatch:GetMetricStatistics` is required to retrieve CPU metrics from EC2 instances
+- `cloudwatch:ListMetrics` is required to list available metrics
+- The EC2 collector looks back 15 minutes for CloudWatch metrics to account for basic monitoring delays
 
 ## Telegram Bot Setup
 
@@ -297,6 +314,13 @@ Examples:
 | 🟡 YELLOW | Yellow | Warning threshold exceeded |
 | 🔴 RED | Red | Critical threshold exceeded or failure |
 | ⚪ UNKNOWN | White | Unable to collect metrics |
+
+**Docker Container Status**:
+- Exit code 0 (clean exit) = 🟢 GREEN - suitable for cron jobs and scheduled tasks
+- Exit code != 0 = 🔴 RED - container crashed or failed
+- Restarting = 🟡 YELLOW
+- Running = 🟢 GREEN
+- Unhealthy = 🔴 RED
 
 ### Threshold Configuration
 
@@ -350,17 +374,34 @@ pip install boto3>=1.34.0
 - Test SSH manually: `ssh -i secrets/your_key ubuntu@host`
 - Check firewall rules on target servers
 
-**4. AWS permissions denied**
+**4. "No CPU metrics available" for EC2 instances**
+- Verify IAM user has `cloudwatch:GetMetricStatistics` and `cloudwatch:ListMetrics` permissions
+- Ensure `.env` file has correct `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`
+- Check that environment variables are loaded (requires `python-dotenv`)
+- Verify boto3 is using the correct AWS credentials:
+  ```python
+  import boto3
+  sts = boto3.client('sts')
+  print(sts.get_caller_identity())  # Should show your monitoring user
+  ```
+- EC2 instances need to be running for 5-15 minutes for CloudWatch metrics to be available
+
+**5. AWS permissions denied**
 - Verify IAM permissions (see AWS IAM Permissions section)
 - Check AWS credentials in `.env`
 - Test with AWS CLI: `aws ec2 describe-instances`
 
-**5. Telegram not receiving messages**
+**6. Telegram "Can't parse entities" error**
+- System automatically retries with plain text formatting if Markdown parsing fails
+- This is handled gracefully - messages will be delivered without formatting
+- Check logs for "Telegram message sent successfully (plain text)"
+
+**7. Telegram not receiving messages**
 - Verify bot token and chat ID
 - Start conversation with bot first
 - Check bot wasn't blocked
 
-**6. Database connection failures**
+**8. Database connection failures**
 - Verify PostgreSQL credentials in `.env`
 - Check database firewall/security groups
 - Test connection: `psql -h host -U user -d database`
@@ -529,6 +570,15 @@ MIT License - see LICENSE file for details
 For issues and questions:
 - GitHub Issues: [repository-url]/issues
 - Documentation: [repository-url]/wiki
+
+## Recent Updates
+
+### v1.1.0 (2026-01-22)
+- ✅ Added `python-dotenv` support for automatic `.env` file loading
+- ✅ Fixed CloudWatch permissions - added `cloudwatch:ListMetrics` to IAM requirements
+- ✅ Increased EC2 metrics lookback from 5 to 15 minutes to handle CloudWatch delays
+- ✅ Changed Docker exit 0 status from YELLOW to GREEN (supports cron jobs)
+- ✅ Added Telegram markdown fallback - auto-retries as plain text on parsing errors
 
 ## Roadmap
 

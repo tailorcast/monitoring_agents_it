@@ -84,6 +84,36 @@ class TelegramClient:
             self.logger.info("Telegram message sent successfully")
             return True
 
+        except telegram.error.BadRequest as e:
+            if "Can't parse entities" in str(e):
+                self.logger.warning(
+                    f"Markdown parsing failed: {e}. Retrying without formatting..."
+                )
+                # Retry without parse mode (plain text)
+                try:
+                    if len(message) > 4096:
+                        await self._send_long_message(message, parse_mode=None)
+                    else:
+                        await self.bot.send_message(
+                            chat_id=self.chat_id,
+                            text=message,
+                            parse_mode=None
+                        )
+                    self.logger.info("Telegram message sent successfully (plain text)")
+                    return True
+                except Exception as retry_error:
+                    self.logger.error(
+                        f"Failed to send Telegram message even as plain text: {retry_error}",
+                        exc_info=True
+                    )
+                    return False
+            else:
+                self.logger.error(
+                    f"Failed to send Telegram message: {e}",
+                    exc_info=True
+                )
+                return False
+
         except Exception as e:
             self.logger.error(
                 f"Failed to send Telegram message: {e}",

@@ -249,7 +249,8 @@ class DockerCollector(BaseCollector):
             if match:
                 exit_code = int(match.group(1))
                 if exit_code == 0:
-                    status = HealthStatus.YELLOW
+                    # Exit 0 is clean - common for cron jobs or one-off tasks
+                    status = HealthStatus.GREEN
                     message = f"Container stopped cleanly (exit {exit_code})"
                 else:
                     status = HealthStatus.RED

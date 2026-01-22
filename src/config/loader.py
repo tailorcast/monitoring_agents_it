@@ -5,7 +5,11 @@ import os
 import re
 from pathlib import Path
 from typing import Any, Dict
+from dotenv import load_dotenv
 from .models import MonitoringSystemConfig
+
+# Load environment variables from .env file
+load_dotenv()
 
 
 class ConfigLoader:

@@ -128,11 +128,11 @@ class EC2Collector(BaseCollector):
                     message=f"Instance {instance_status['state']}"
                 )
 
-            # Get CloudWatch metrics (last 5 minutes)
+            # Get CloudWatch metrics (last 15 minutes to account for delays)
             cpu_usage = self._get_cpu_utilization(
                 cloudwatch_client,
                 config.instance_id,
-                minutes=5
+                minutes=15
             )
 
             # Determine status based on CPU usage
