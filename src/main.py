@@ -247,26 +247,37 @@ class MonitoringApp:
             misfire_grace_time=300  # 5 minutes grace for startup
         )
 
-        self.scheduler.start()
-        self.logger.info(f"Scheduler started with cron: {schedule}")
-        self.logger.info("Next run time: " + str(
-            self.scheduler.get_job('monitoring_cycle').next_run_time
-        ))
+        # Keep running with event loop
+        async def run_scheduler():
+            """Start scheduler within async context."""
+            self.scheduler.start()
+            self.logger.info(f"Scheduler started with cron: {schedule}")
+            self.logger.info("Next run time: " + str(
+                self.scheduler.get_job('monitoring_cycle').next_run_time
+            ))
 
-        # Run first cycle immediately on startup
-        self.logger.info("Running initial monitoring cycle immediately...")
-        asyncio.get_event_loop().run_until_complete(self.run_monitoring_cycle())
+            # Run first cycle immediately on startup
+            self.logger.info("Running initial monitoring cycle immediately...")
+            await self.run_monitoring_cycle()
 
-        # Keep running
-        try:
+            # Keep running forever
             self.logger.info("Scheduler running. Press Ctrl+C to exit.")
-            asyncio.get_event_loop().run_forever()
+            while True:
+                await asyncio.sleep(60)  # Check every minute
+
+        try:
+            self.logger.info("Starting event loop...")
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(run_scheduler())
         except KeyboardInterrupt:
             self.logger.info("Received keyboard interrupt")
         finally:
             if self.scheduler and self.scheduler.running:
                 self.scheduler.shutdown()
             self.logger.info("Scheduler stopped")
+            if 'loop' in locals() and loop and not loop.is_closed():
+                loop.close()
 
 
 def main():

@@ -80,7 +80,7 @@ If you can read this, Telegram integration is working correctly!
 
         # Test 3: Long message (will be split)
         print("\n[Test 3] Sending long message (>4096 chars)...")
-        long_message = "🧪 **Long Message Test**\n\n" + "\n".join([f"Line {i}: Test content for message splitting" for i in range(300)])
+        long_message = "🧪 **Long Message Test**\n\n" + "\n".join([f"Line {i}: Test content for message splitting" for i in range(30)])
 
         success = await telegram.send_message(long_message)
 

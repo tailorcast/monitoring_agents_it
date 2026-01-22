@@ -27,6 +27,22 @@ class ReportAgent:
         """
         self.logger = logger or logging.getLogger(__name__)
 
+    def _escape_markdown(self, text: str) -> str:
+        """
+        Escape special Markdown characters in text.
+
+        Args:
+            text: Text to escape
+
+        Returns:
+            str: Escaped text safe for Telegram Markdown
+        """
+        # Escape Markdown special characters
+        special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+        for char in special_chars:
+            text = text.replace(char, f'\\{char}')
+        return text
+
     async def generate_report(self, state: MonitoringState) -> str:
         """
         Generate formatted Telegram report from workflow state.
@@ -160,8 +176,8 @@ class ReportAgent:
         if red_issues:
             section += "### 🔴 Critical Issues\n\n"
             for issue in red_issues:
-                section += f"**{issue.target_name}** ({issue.collector_name})\n"
-                section += f"└─ {issue.message}\n"
+                section += f"**{self._escape_markdown(issue.target_name)}** ({issue.collector_name})\n"
+                section += f"└─ {self._escape_markdown(issue.message)}\n"
 
                 if issue.metrics:
                     metrics_str = self._format_metrics(issue.metrics)
@@ -173,8 +189,8 @@ class ReportAgent:
         if yellow_issues:
             section += "### 🟡 Warnings\n\n"
             for issue in yellow_issues:
-                section += f"**{issue.target_name}** ({issue.collector_name})\n"
-                section += f"└─ {issue.message}\n"
+                section += f"**{self._escape_markdown(issue.target_name)}** ({issue.collector_name})\n"
+                section += f"└─ {self._escape_markdown(issue.message)}\n"
 
                 if issue.metrics:
                     metrics_str = self._format_metrics(issue.metrics)
@@ -212,7 +228,7 @@ class ReportAgent:
         root_cause = analysis.get('root_cause', 'Unknown')
         severity = analysis.get('severity', 'unknown').upper()
 
-        section += f"**Root Cause**: {root_cause}\n"
+        section += f"**Root Cause**: {self._escape_markdown(root_cause)}\n"
         section += f"**Severity**: {severity}\n\n"
 
         # Affected systems
@@ -241,10 +257,10 @@ class ReportAgent:
                     'LOW': '💡'
                 }.get(priority, 'ℹ️')
 
-                section += f"{i}. {priority_emoji} **[{priority}]** {action}\n"
+                section += f"{i}. {priority_emoji} **[{priority}]** {self._escape_markdown(action)}\n"
 
                 if rationale:
-                    section += f"   └─ {rationale}\n"
+                    section += f"   └─ {self._escape_markdown(rationale)}\n"
 
                 section += "\n"
 
