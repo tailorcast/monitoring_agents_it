@@ -69,6 +69,10 @@ Required packages include:
 - `langgraph>=0.1.0` - Workflow orchestration
 - `apscheduler>=3.10.0` - Cron-based scheduling
 
+Optional packages for visualization:
+- `pygraphviz` or `grandalf` - For workflow graph visualization
+- `langsmith` - For real-time workflow tracing (separate signup required)
+
 ### Step 3: Configure Environment Variables
 
 Create `.env` file from template:
@@ -449,6 +453,67 @@ for r in results:
 "
 ```
 
+## Workflow Visualization
+
+### Generate Graph Diagram
+
+Visualize the LangGraph workflow structure:
+
+```bash
+# Install visualization dependencies
+pip install pygraphviz
+# or
+pip install grandalf
+
+# Generate graph
+python scripts/visualize_workflow.py workflow_graph.png
+```
+
+This creates a visual diagram showing the workflow:
+- **aggregate**: Parallel data collection from all collectors
+- **analyze**: AI-powered root cause analysis
+- **generate_report**: Format results for Telegram
+- **send_telegram**: Deliver report to Telegram
+
+### LangSmith Integration
+
+Enable real-time workflow monitoring with LangSmith (optional):
+
+**1. Sign up for LangSmith**
+- Visit https://smith.langchain.com
+- Create free account
+- Get your API key
+
+**2. Configure environment**
+
+Add to `.env`:
+```bash
+LANGCHAIN_TRACING_V2=true
+LANGCHAIN_API_KEY=ls__your_api_key_here
+LANGCHAIN_PROJECT=monitoring-agents
+```
+
+**3. Run monitoring**
+```bash
+python -m src.main --run-once
+```
+
+**4. View traces**
+- Open https://smith.langchain.com
+- Navigate to your project: `monitoring-agents`
+- View execution traces with:
+  - Node-by-node execution timing
+  - Token usage per LLM call
+  - Input/output for each step
+  - Error details if failures occur
+  - Historical run comparison
+
+**Benefits**:
+- Debug workflow issues visually
+- Optimize performance bottlenecks
+- Track LLM costs over time
+- Share traces with team
+
 ## Development
 
 ### Project Structure
@@ -572,6 +637,11 @@ For issues and questions:
 - Documentation: [repository-url]/wiki
 
 ## Recent Updates
+
+### v1.2.0 (2026-01-22)
+- ✅ Added workflow graph visualization with `scripts/visualize_workflow.py`
+- ✅ Integrated LangSmith tracing for real-time workflow monitoring and debugging
+- ✅ Added `visualize_graph()` method to MonitoringWorkflow class
 
 ### v1.1.0 (2026-01-22)
 - ✅ Added `python-dotenv` support for automatic `.env` file loading

@@ -3,6 +3,7 @@
 import asyncio
 import time
 import logging
+import os
 from typing import Dict
 
 try:
@@ -53,6 +54,9 @@ class MonitoringWorkflow:
 
         self.config = config
         self.logger = logger or setup_logger("workflow")
+
+        # Setup LangSmith tracing if enabled
+        self._setup_langsmith()
 
         # Initialize AI components
         self.logger.info("Initializing AI components...")
@@ -129,6 +133,30 @@ class MonitoringWorkflow:
         # Build LangGraph workflow
         self.graph = self._build_graph()
         self.logger.info("Workflow initialized successfully")
+
+    def _setup_langsmith(self):
+        """
+        Setup LangSmith tracing if environment variables are configured.
+
+        Set these environment variables to enable:
+        - LANGCHAIN_TRACING_V2=true
+        - LANGCHAIN_API_KEY=your_api_key
+        - LANGCHAIN_PROJECT=monitoring-agents (optional)
+        """
+        if os.getenv("LANGCHAIN_TRACING_V2", "").lower() == "true":
+            api_key = os.getenv("LANGCHAIN_API_KEY")
+            project = os.getenv("LANGCHAIN_PROJECT", "monitoring-agents")
+
+            if api_key:
+                self.logger.info(f"LangSmith tracing enabled for project: {project}")
+                self.logger.info("View traces at: https://smith.langchain.com")
+            else:
+                self.logger.warning(
+                    "LANGCHAIN_TRACING_V2 is enabled but LANGCHAIN_API_KEY is not set. "
+                    "Tracing will not work."
+                )
+        else:
+            self.logger.debug("LangSmith tracing disabled")
 
     def _build_graph(self) -> StateGraph:
         """
@@ -316,6 +344,37 @@ class MonitoringWorkflow:
         except Exception as e:
             self.logger.error(f"Telegram delivery failed: {e}", exc_info=True)
             return {"telegram_sent": False}
+
+    def visualize_graph(self, output_path: str = "workflow_graph.png") -> bool:
+        """
+        Generate visual representation of the workflow graph.
+
+        Args:
+            output_path: Path to save the graph image
+
+        Returns:
+            bool: True if visualization was generated successfully
+        """
+        try:
+            # Generate mermaid PNG
+            mermaid_png = self.graph.get_graph().draw_mermaid_png()
+
+            with open(output_path, 'wb') as f:
+                f.write(mermaid_png)
+
+            self.logger.info(f"Graph visualization saved to {output_path}")
+            return True
+
+        except ImportError as e:
+            self.logger.error(
+                f"Graph visualization requires additional dependencies: {e}\n"
+                "Install with: pip install pygraphviz or pip install grandalf"
+            )
+            return False
+
+        except Exception as e:
+            self.logger.error(f"Failed to generate graph visualization: {e}")
+            return False
 
     async def run(self) -> MonitoringState:
         """
