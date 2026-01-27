@@ -43,7 +43,7 @@ fi
 # Step 1: Stop and remove existing container
 echo -e "${YELLOW}[1/4] Stopping existing container...${NC}"
 if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
-    docker-compose -f ${COMPOSE_FILE} down || true
+    docker compose -f ${COMPOSE_FILE} down || true
     echo -e "${GREEN}✓ Stopped and removed existing container${NC}"
 else
     echo "  No existing container found"
@@ -66,7 +66,7 @@ echo ""
 
 # Step 4: Start new container
 echo -e "${YELLOW}[3/4] Starting new container...${NC}"
-docker-compose -f ${COMPOSE_FILE} up -d || {
+docker compose -f ${COMPOSE_FILE} up -d || {
     echo -e "${RED}ERROR: Failed to start container${NC}"
     exit 1
 }
@@ -84,7 +84,7 @@ if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
     echo "  docker logs -f ${CONTAINER_NAME}"
     echo ""
     echo "Stop with:"
-    echo "  docker-compose -f ${COMPOSE_FILE} down"
+    echo "  docker compose -f ${COMPOSE_FILE} down"
     echo ""
     echo -e "${GREEN}========================================${NC}"
     echo -e "${GREEN}Deployment Successful!${NC}"
