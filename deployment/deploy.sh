@@ -103,6 +103,20 @@ if [ -f "config/config.yaml" ]; then
     }
 fi
 
+# Copy secrets folder (SSH keys, etc.)
+if [ -d "secrets" ] && [ "$(ls -A secrets 2>/dev/null)" ]; then
+    echo "  - Copying secrets folder..."
+    ssh -i "$SSH_KEY" ${EC2_HOST} "mkdir -p ${REMOTE_DIR}/secrets"
+    scp -i "$SSH_KEY" -r secrets/* ${EC2_HOST}:${REMOTE_DIR}/secrets/ || {
+        echo -e "${YELLOW}WARNING: Failed to copy secrets${NC}"
+    }
+    # Set correct permissions on remote
+    ssh -i "$SSH_KEY" ${EC2_HOST} "chmod 600 ${REMOTE_DIR}/secrets/*" || true
+    echo -e "${GREEN}✓ Secrets copied and permissions set${NC}"
+else
+    echo -e "${YELLOW}  - No secrets folder found (skipping)${NC}"
+fi
+
 echo -e "${GREEN}✓ Files copied successfully${NC}"
 echo ""
 

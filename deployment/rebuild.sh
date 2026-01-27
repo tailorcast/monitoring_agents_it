@@ -33,6 +33,13 @@ if [ ! -f ".env" ]; then
     exit 1
 fi
 
+# Check if secrets folder exists (warning only, not required for all setups)
+if [ ! -d "secrets" ] || [ -z "$(ls -A secrets 2>/dev/null)" ]; then
+    echo -e "${YELLOW}WARNING: secrets/ folder is empty or missing${NC}"
+    echo "If you need SSH key access to VPS servers, add keys to secrets/ folder"
+    echo ""
+fi
+
 # Step 1: Stop and remove existing container
 echo -e "${YELLOW}[1/4] Stopping existing container...${NC}"
 if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
