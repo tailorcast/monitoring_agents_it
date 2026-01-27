@@ -304,7 +304,7 @@ TELEGRAM_CHAT_ID=<your-chat-id>
 # Optional: SSH keys
 VPS_SSH_KEY_PATH=/app/secrets/your_key
 
-# Optional: Database
+# Database (required if monitoring PostgreSQL databases)
 POSTGRES_USER=monitoring_user
 POSTGRES_PASSWORD=<your-password>
 
@@ -342,8 +342,27 @@ targets:
       name: "API Health"
       timeout_ms: 5000
 
+  databases:
+    - host: "your-db-host.rds.amazonaws.com"
+      port: 5432
+      database: "your_database"
+      table: "your_table"  # Optional: query specific table
+      ssl_mode: "require"
+      sslrootcert: "deployment/rds-ca-2019-root.pem"  # AWS RDS CA certificate
+
   # ... other targets
 ```
+
+**Note**: For PostgreSQL databases with SSL:
+- The RDS CA certificate is automatically downloaded during Docker build
+- Create a dedicated monitoring user with read-only permissions:
+  ```sql
+  CREATE USER monitoring_user WITH PASSWORD 'your_password';
+  GRANT CONNECT ON DATABASE your_database TO monitoring_user;
+  GRANT USAGE ON SCHEMA public TO monitoring_user;
+  GRANT SELECT ON table_name TO monitoring_user;  -- Optional
+  ```
+- Set `POSTGRES_USER` and `POSTGRES_PASSWORD` in `.env`
 
 ---
 

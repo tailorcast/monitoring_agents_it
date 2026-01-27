@@ -1,5 +1,5 @@
 # IT Infrastructure Monitoring System - Docker Image
-FROM python:3.11-slim
+FROM python:3.13-slim
 
 # Set working directory
 WORKDIR /app
@@ -7,6 +7,7 @@ WORKDIR /app
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     openssh-client \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching
@@ -14,6 +15,11 @@ COPY deployment/requirements.txt /app/deployment/requirements.txt
 
 # Install Python dependencies
 RUN pip install --no-cache-dir -r deployment/requirements.txt
+
+# Download AWS RDS CA certificate for SSL connections
+RUN mkdir -p /app/deployment && \
+    curl -o /app/deployment/rds-ca-2019-root.pem https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem && \
+    chmod 644 /app/deployment/rds-ca-2019-root.pem
 
 # Copy application code
 COPY src/ /app/src/

@@ -127,15 +127,21 @@ class DatabaseCollector(BaseCollector):
                 )
 
             # Attempt connection
-            conn = psycopg2.connect(
-                host=config.host,
-                port=config.port,
-                database=config.database,
-                user=username,
-                password=password,
-                sslmode=config.ssl_mode,
-                connect_timeout=10
-            )
+            conn_params = {
+                'host': config.host,
+                'port': config.port,
+                'database': config.database,
+                'user': username,
+                'password': password,
+                'sslmode': config.ssl_mode,
+                'connect_timeout': 10
+            }
+
+            # Add SSL root certificate if specified
+            if config.sslrootcert:
+                conn_params['sslrootcert'] = config.sslrootcert
+
+            conn = psycopg2.connect(**conn_params)
 
             cursor = conn.cursor()
 

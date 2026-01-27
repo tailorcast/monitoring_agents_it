@@ -43,6 +43,7 @@ class DatabaseConfig(BaseModel):
     database: str
     table: Optional[str] = None
     ssl_mode: str = "require"
+    sslrootcert: Optional[str] = None  # Path to SSL CA certificate bundle
 
 
 class LLMModelConfig(BaseModel):
