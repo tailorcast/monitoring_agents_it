@@ -5,6 +5,15 @@ import asyncio
 from typing import List, Optional
 import logging
 
+try:
+    from langsmith import traceable
+except ImportError:
+    # Graceful fallback if langsmith not installed
+    def traceable(*args, **kwargs):
+        def decorator(func):
+            return func
+        return decorator if not args else decorator(args[0])
+
 from ..config.models import VPSServerConfig
 from ..utils.status import HealthStatus
 from ..utils.metrics import CollectorResult
@@ -92,6 +101,7 @@ class VPSCollector(BaseCollector):
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self._collect_server, config)
 
+    @traceable(name="VPSCollector._collect_server")
     def _collect_server(self, config: VPSServerConfig) -> CollectorResult:
         """
         Collect system metrics from single VPS server.

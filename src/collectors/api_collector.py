@@ -10,6 +10,15 @@ try:
 except ImportError:
     httpx = None
 
+try:
+    from langsmith import traceable
+except ImportError:
+    # Graceful fallback if langsmith not installed
+    def traceable(*args, **kwargs):
+        def decorator(func):
+            return func
+        return decorator if not args else decorator(args[0])
+
 from ..config.models import APIEndpointConfig
 from ..utils.status import HealthStatus
 from ..utils.metrics import CollectorResult
@@ -83,6 +92,7 @@ class APICollector(BaseCollector):
 
         return final_results
 
+    @traceable(name="APICollector._check_endpoint")
     async def _check_endpoint(self, config: APIEndpointConfig) -> CollectorResult:
         """
         Check single API endpoint.

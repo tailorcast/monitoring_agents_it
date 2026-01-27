@@ -10,6 +10,15 @@ try:
 except ImportError:
     boto3 = None
 
+try:
+    from langsmith import traceable
+except ImportError:
+    # Graceful fallback if langsmith not installed
+    def traceable(*args, **kwargs):
+        def decorator(func):
+            return func
+        return decorator if not args else decorator(args[0])
+
 from ..config.models import EC2InstanceConfig
 from ..utils.status import HealthStatus
 from ..utils.metrics import CollectorResult
@@ -96,6 +105,7 @@ class EC2Collector(BaseCollector):
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self._collect_instance, config)
 
+    @traceable(name="EC2Collector._collect_instance")
     def _collect_instance(self, config: EC2InstanceConfig) -> CollectorResult:
         """
         Collect metrics from single EC2 instance.
@@ -195,6 +205,7 @@ class EC2Collector(BaseCollector):
             'launch_time': instance.get('LaunchTime')
         }
 
+    @traceable(name="EC2Collector._get_cpu_utilization")
     def _get_cpu_utilization(
         self,
         cloudwatch_client,

@@ -5,6 +5,15 @@ from typing import List, Any, Optional, Dict
 import logging
 from functools import wraps
 
+try:
+    from langsmith import traceable
+except ImportError:
+    # Graceful fallback if langsmith not installed
+    def traceable(*args, **kwargs):
+        def decorator(func):
+            return func
+        return decorator if not args else decorator(args[0])
+
 from ..utils.status import HealthStatus
 from ..utils.metrics import CollectorResult
 
@@ -35,6 +44,10 @@ class BaseCollector(ABC):
 
         Raises:
             Exception: Any collection errors (will be caught by safe_collect)
+
+        Note:
+            Implementations should use @safe_collect decorator for error handling
+            and will automatically inherit @traceable for LangSmith tracing.
         """
         pass
 
@@ -79,15 +92,20 @@ class BaseCollector(ABC):
 
 def safe_collect(func):
     """
-    Decorator to handle collector exceptions gracefully.
+    Decorator to handle collector exceptions gracefully and add LangSmith tracing.
+
+    Combines error handling with LangSmith tracing for comprehensive observability.
+    When LangSmith is enabled, each collector's execution will appear as a nested
+    trace within the aggregate node.
 
     Args:
         func: Collector method to wrap
 
     Returns:
-        Wrapped function that catches exceptions
+        Wrapped function that catches exceptions and traces execution
     """
     @wraps(func)
+    @traceable
     async def wrapper(self, *args, **kwargs):
         try:
             return await func(self, *args, **kwargs)
