@@ -12,13 +12,30 @@ monitoring:
 targets:
   # EC2 Instances (AWS)
   ec2_instances:
+    # Example 1: CPU monitoring only (default, backward compatible)
     - instance_id: "i-1234567890abcdef0"
       name: "prod-api-server-1"
       region: "us-east-1"
-    # Add more EC2 instances as needed
+
+    # Example 2: With disk monitoring enabled (requires CloudWatch Agent)
+    # Monitors root filesystem with auto-detected device and filesystem type
     # - instance_id: "i-0987654321fedcba0"
     #   name: "prod-db-server"
     #   region: "us-east-1"
+    #   monitor_disk: true
+    #   disk_path: "/"              # Root filesystem (default)
+    #   disk_namespace: "CWAgent"   # CloudWatch Agent namespace (default)
+    #   # disk_device: auto-detected if omitted
+    #   # disk_fstype: auto-detected if omitted
+
+    # Example 3: Monitor specific mount point with explicit device configuration
+    # - instance_id: "i-abcdef1234567890"
+    #   name: "storage-server"
+    #   region: "us-west-2"
+    #   monitor_disk: true
+    #   disk_path: "/data"          # Monitor /data mount point
+    #   disk_device: "nvme1n1"      # Explicit device name
+    #   disk_fstype: "xfs"          # Explicit filesystem type
 
   # VPS Servers (SSH access)
   vps_servers:

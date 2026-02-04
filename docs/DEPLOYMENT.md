@@ -32,14 +32,14 @@ python -m src.main --run-once --dry-run
 # Build image
 docker build -t monitoring-agent -f deployment/Dockerfile .
 
-# Run with docker-compose
-docker-compose -f deployment/docker-compose.yml up -d
+# Run with docker compose
+docker compose -f deployment/docker-compose.yml up -d
 
 # View logs
 docker logs -f monitoring-agent
 
 # Stop
-docker-compose -f deployment/docker-compose.yml down
+docker compose -f deployment/docker-compose.yml down
 ```
 
 ### 3. EC2 Deployment
@@ -120,10 +120,10 @@ Best for: Production, isolation, easy updates
    chmod 600 secrets/*
    ```
 
-3. Run with docker-compose:
+3. Run with docker compose:
    ```bash
    cd deployment
-   docker-compose up -d
+   docker compose up -d
    ```
 
 4. Manage:
@@ -132,14 +132,14 @@ Best for: Production, isolation, easy updates
    docker logs -f monitoring-agent
 
    # Restart
-   docker-compose restart
+   docker compose restart
 
    # Stop
-   docker-compose down
+   docker compose down
 
    # Update and restart
-   docker-compose build
-   docker-compose up -d
+   docker compose build
+   docker compose up -d
    ```
 
 **Pros**: Isolated, reproducible, easy to update
@@ -200,9 +200,13 @@ sudo systemctl start docker
 sudo systemctl enable docker
 sudo usermod -aG docker ec2-user
 
-# Install Docker Compose
-sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-sudo chmod +x /usr/local/bin/docker-compose
+# Install Docker Compose plugin (v2)
+sudo mkdir -p /usr/local/lib/docker/cli-plugins
+sudo curl -SL "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/lib/docker/cli-plugins/docker-compose
+sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+
+# Verify installation
+docker compose version
 
 # Log out and back in for group changes
 exit
@@ -240,7 +244,7 @@ mkdir -p secrets
 
 # Build and start
 cd deployment
-docker-compose up -d
+docker compose up -d
 
 # Check logs
 docker logs -f monitoring-agent
@@ -265,8 +269,8 @@ Requires=docker.service
 Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=/home/ec2-user/monitoring_agents/deployment
-ExecStart=/usr/local/bin/docker-compose up -d
-ExecStop=/usr/local/bin/docker-compose down
+ExecStart=/usr/bin/docker compose up -d
+ExecStop=/usr/bin/docker compose down
 User=ec2-user
 
 [Install]
@@ -486,8 +490,8 @@ git pull
 
 # Rebuild and restart
 cd deployment
-docker-compose build
-docker-compose up -d
+docker compose build
+docker compose up -d
 
 # Verify
 docker logs -f monitoring-agent
@@ -500,7 +504,7 @@ docker logs -f monitoring-agent
 nano config/config.yaml
 
 # Restart to apply changes
-docker-compose restart
+docker compose restart
 ```
 
 ### Backup Configuration

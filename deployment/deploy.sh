@@ -131,10 +131,10 @@ docker load < monitoring-agent-latest.tar.gz
 
 echo "  - Stopping existing container..."
 cd ~/monitoring_agents
-docker-compose down 2>/dev/null || true
+docker compose down 2>/dev/null || true
 
 echo "  - Starting new container..."
-docker-compose up -d
+docker compose up -d
 
 echo "  - Cleaning up..."
 rm -f /tmp/monitoring-agent-latest.tar.gz
@@ -150,7 +150,7 @@ ssh -i "$SSH_KEY" ${EC2_HOST} << 'ENDSSH'
 cd ~/monitoring_agents
 
 # Check container status
-if docker-compose ps | grep -q "Up"; then
+if docker compose ps | grep -q "Up"; then
     echo "  ✓ Container is running"
 else
     echo "  ✗ Container is not running!"
@@ -160,7 +160,7 @@ fi
 # Show recent logs
 echo ""
 echo "Recent logs:"
-docker-compose logs --tail=20
+docker compose logs --tail=20
 
 ENDSSH
 
@@ -171,9 +171,9 @@ if [ $? -eq 0 ]; then
     echo -e "${GREEN}========================================${NC}"
     echo ""
     echo "Next steps:"
-    echo "  - View logs: ssh -i $SSH_KEY ${EC2_HOST} 'cd ~/monitoring_agents && docker-compose logs -f'"
-    echo "  - Check status: ssh -i $SSH_KEY ${EC2_HOST} 'cd ~/monitoring_agents && docker-compose ps'"
-    echo "  - Stop: ssh -i $SSH_KEY ${EC2_HOST} 'cd ~/monitoring_agents && docker-compose down'"
+    echo "  - View logs: ssh -i $SSH_KEY ${EC2_HOST} 'cd ~/monitoring_agents && docker compose logs -f'"
+    echo "  - Check status: ssh -i $SSH_KEY ${EC2_HOST} 'cd ~/monitoring_agents && docker compose ps'"
+    echo "  - Stop: ssh -i $SSH_KEY ${EC2_HOST} 'cd ~/monitoring_agents && docker compose down'"
 else
     echo -e "${RED}Deployment verification failed!${NC}"
     exit 1

@@ -10,6 +10,12 @@ class EC2InstanceConfig(BaseModel):
     instance_id: str
     name: str
     region: Optional[str] = "us-east-1"
+    # Disk monitoring configuration
+    monitor_disk: Optional[bool] = False  # Opt-in for backward compatibility
+    disk_namespace: Optional[str] = "CWAgent"  # CloudWatch Agent namespace
+    disk_path: Optional[str] = "/"  # Filesystem path to monitor
+    disk_device: Optional[str] = None  # Auto-detect if None
+    disk_fstype: Optional[str] = None  # Auto-detect if None
 
 
 class VPSServerConfig(BaseModel):
