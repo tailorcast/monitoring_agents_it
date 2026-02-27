@@ -98,6 +98,7 @@ class ThresholdsConfig(BaseModel):
 class MonitoringConfig(BaseModel):
     """Monitoring schedule configuration."""
     schedule: str = "0 */6 * * *"  # Cron syntax
+    history_file_path: str = "./data/metric_history.json"
 
     @field_validator('schedule')
     @classmethod

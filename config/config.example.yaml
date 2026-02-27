@@ -8,6 +8,7 @@ monitoring:
   #   "0 */1 * * *"   - Every hour
   #   "0 0 * * *"     - Daily at midnight
   schedule: "0 */6 * * *"
+  # history_file_path: "./data/metric_history.json"  # Daily metric incident history
 
 targets:
   # EC2 Instances (AWS)

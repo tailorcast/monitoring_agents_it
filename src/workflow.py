@@ -1,6 +1,7 @@
 """LangGraph workflow for monitoring orchestration."""
 
 import asyncio
+import dataclasses
 import time
 import logging
 import os
@@ -17,6 +18,7 @@ from .agents.analysis_agent import AnalysisAgent
 from .agents.report_agent import ReportAgent
 from .services.bedrock_client import BedrockClient
 from .services.budget_tracker import BudgetTracker
+from .services.metric_history import MetricHistoryStore
 from .config.models import MonitoringSystemConfig
 from .utils.status import HealthStatus
 from .utils.logger import setup_logger
@@ -63,6 +65,10 @@ class MonitoringWorkflow:
         self.bedrock_client = BedrockClient(config.llm, self.logger)
         self.budget_tracker = BudgetTracker(
             daily_budget_usd=config.llm.daily_budget_usd,
+            logger=self.logger
+        )
+        self.history_store = MetricHistoryStore(
+            history_file=config.monitoring.history_file_path,
             logger=self.logger
         )
 
@@ -173,6 +179,7 @@ class MonitoringWorkflow:
 
         # Add processing nodes
         workflow.add_node("aggregate", self._aggregate_results)
+        workflow.add_node("history_filter", self._history_filter)
         workflow.add_node("analyze", self._ai_analysis)
         workflow.add_node("generate_report", self._generate_report)
         workflow.add_node("send_telegram", self._send_telegram)
@@ -181,7 +188,8 @@ class MonitoringWorkflow:
         workflow.set_entry_point("aggregate")
 
         # Define sequential flow
-        workflow.add_edge("aggregate", "analyze")
+        workflow.add_edge("aggregate", "history_filter")
+        workflow.add_edge("history_filter", "analyze")
         workflow.add_edge("analyze", "generate_report")
         workflow.add_edge("generate_report", "send_telegram")
         workflow.add_edge("send_telegram", END)
@@ -246,6 +254,68 @@ class MonitoringWorkflow:
             "all_results": all_results,
             "issues": issues
         }
+
+    async def _history_filter(self, state: MonitoringState) -> Dict:
+        """
+        Dampen first-occurrence threshold breaches from RED to YELLOW.
+
+        Binary failures (connection errors, container down) are never touched.
+        Only numeric threshold metrics (CPU, RAM, disk, API response time) may be
+        downgraded on their first occurrence today; subsequent occurrences stay RED.
+
+        Args:
+            state: Current workflow state with raw all_results
+
+        Returns:
+            dict: Updated all_results and issues
+        """
+        thresholds = self.config.thresholds.__dict__
+        adjusted = []
+
+        for result in state.get("all_results", []):
+            if result.status != HealthStatus.RED:
+                adjusted.append(result)
+                continue
+
+            red_keys = self.history_store.get_red_metric_keys(result, thresholds)
+
+            if not red_keys:
+                # Binary failure or collector not in THRESHOLD_METRICS — pass through
+                adjusted.append(result)
+                continue
+
+            all_first_occurrence = all(
+                self.history_store.get_daily_count(k) == 0 for k in red_keys
+            )
+
+            # Always increment counts for all red metric keys
+            for k in red_keys:
+                self.history_store.increment(k)
+
+            if all_first_occurrence:
+                dampened = dataclasses.replace(
+                    result,
+                    status=HealthStatus.YELLOW,
+                    message=result.message + " [first occurrence today]",
+                )
+                self.logger.info(
+                    f"Dampened first-occurrence RED → YELLOW: "
+                    f"{result.collector_name}:{result.target_name} ({red_keys})"
+                )
+                adjusted.append(dampened)
+            else:
+                adjusted.append(result)
+
+        issues = [
+            r for r in adjusted
+            if r.status in [HealthStatus.RED, HealthStatus.YELLOW, HealthStatus.UNKNOWN]
+        ]
+
+        self.logger.info(
+            f"History filter complete: {len(adjusted)} results, {len(issues)} issue(s)"
+        )
+
+        return {"all_results": adjusted, "issues": issues}
 
     async def _ai_analysis(self, state: MonitoringState) -> Dict:
         """
