@@ -4,7 +4,7 @@ AI-powered monitoring system for cloud infrastructure and services with intellig
 
 ## Features
 
-- **Multi-platform monitoring**: EC2, VPS, Docker containers, databases, APIs, S3 buckets, LLM models
+- **Multi-platform monitoring**: EC2, VPS, Docker containers, Docker logs, databases, APIs, S3 buckets, LLM models
 - **AI-powered analysis**: Claude Haiku 3.5 for intelligent health assessment and recommendations
 - **Scheduled checks**: Configurable cron-based monitoring (default: every 6 hours)
 - **Telegram notifications**: Instant alerts with detailed status reports
@@ -31,6 +31,7 @@ Built with:
 | **EC2 Instances** | CPU utilization, instance state | CloudWatch metrics + thresholds (15-min lookback) |
 | **VPS Servers** | CPU, RAM, disk usage | SSH commands (top, free, df) |
 | **Docker Containers** | Container status, health checks | docker ps parsing, exit 0 = healthy |
+| **Docker Logs** | Error/exception/fatal counts (4h, 24h) | docker compose logs + grep, configurable thresholds |
 | **API Endpoints** | Response time, HTTP status | Timeout and latency thresholds |
 | **PostgreSQL DBs** | Connectivity, version, table stats | Connection success/failure |
 | **LLM Models** | Model availability | Minimal test invocations |
@@ -151,6 +152,15 @@ targets:
   llm_models:
     - provider: "bedrock"
       model_id: "us.anthropic.claude-3-5-haiku-20241022-v1:0"
+
+  docker_logs:
+    - host: "10.0.0.1"
+      name: "my-app"
+      ssh_key_path: "/app/secrets/my_key"
+      port: 22
+      username: "ubuntu"
+      compose_file: "/opt/docker/my-app/docker-compose.yml"
+      error_patterns: "error|exception|fatal"  # optional
 
   s3_buckets:
     - bucket: "my-production-bucket"
@@ -326,6 +336,11 @@ Examples:
 - Running = 🟢 GREEN
 - Unhealthy = 🔴 RED
 
+**Docker Logs Errors** (separate from container status):
+- Counts `error|exception|fatal` occurrences in docker compose logs for 4h and 24h windows
+- Configured independently per host — use for selected services that need deep monitoring
+- Metrics reported: `errors_4h`, `errors_24h`, `rate_per_hour_4h`, `rate_per_hour_24h`
+
 ### Threshold Configuration
 
 **CPU and RAM** (higher is worse):
@@ -341,6 +356,12 @@ Examples:
 **API response time**:
 - `api_timeout_ms: 5000` - RED when timeout (5 seconds)
 - `api_slow_ms: 2000` - YELLOW when > 2 seconds
+
+**Docker logs error counts**:
+- `docker_logs_errors_4h_red: 50` - RED when >= 50 errors in last 4 hours
+- `docker_logs_errors_4h_yellow: 20` - YELLOW when >= 20 errors in last 4 hours
+- `docker_logs_errors_24h_red: 200` - RED when >= 200 errors in last 24 hours
+- `docker_logs_errors_24h_yellow: 100` - YELLOW when >= 100 errors in last 24 hours
 
 ### Budget Control
 
@@ -637,6 +658,12 @@ For issues and questions:
 - Documentation: [repository-url]/wiki
 
 ## Recent Updates
+
+### v1.3.0 (2026-03-12)
+- ✅ Added Docker logs error monitoring collector (`dockerlogs`)
+- ✅ Counts error/exception/fatal in docker compose logs over 4h and 24h windows
+- ✅ Separate from Docker container health checks — configurable per host via `docker_logs` targets
+- ✅ Configurable thresholds for 4h/24h error counts
 
 ### v1.2.0 (2026-01-22)
 - ✅ Added workflow graph visualization with `scripts/visualize_workflow.py`
