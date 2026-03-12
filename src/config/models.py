@@ -76,6 +76,17 @@ class S3BucketConfig(BaseModel):
         return v
 
 
+class DockerLogsTargetConfig(BaseModel):
+    """Configuration for Docker logs error monitoring via SSH."""
+    host: str
+    name: str
+    ssh_key_path: str
+    port: int = 22
+    username: str = "ubuntu"
+    compose_file: str
+    error_patterns: Optional[str] = "error|exception|fatal"
+
+
 class ThresholdsConfig(BaseModel):
     """System health thresholds configuration."""
     cpu_red: int = Field(default=90, ge=0, le=100)
@@ -86,6 +97,10 @@ class ThresholdsConfig(BaseModel):
     disk_free_yellow: int = Field(default=20, ge=0, le=100)
     api_timeout_ms: int = Field(default=5000, ge=100)
     api_slow_ms: int = Field(default=2000, ge=100)
+    docker_logs_errors_4h_red: int = Field(default=50, ge=0)
+    docker_logs_errors_4h_yellow: int = Field(default=20, ge=0)
+    docker_logs_errors_24h_red: int = Field(default=200, ge=0)
+    docker_logs_errors_24h_yellow: int = Field(default=100, ge=0)
 
     @field_validator('cpu_yellow', 'ram_yellow', 'disk_free_yellow')
     @classmethod
@@ -133,6 +148,7 @@ class TargetsConfig(BaseModel):
     databases: List[DatabaseConfig] = Field(default_factory=list)
     llm_models: List[LLMModelConfig] = Field(default_factory=list)
     s3_buckets: List[S3BucketConfig] = Field(default_factory=list)
+    docker_logs: List[DockerLogsTargetConfig] = Field(default_factory=list)
 
 
 class MonitoringSystemConfig(BaseModel):

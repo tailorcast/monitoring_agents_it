@@ -31,6 +31,7 @@ from .collectors.api_collector import APICollector
 from .collectors.database_collector import DatabaseCollector
 from .collectors.llm_collector import LLMCollector
 from .collectors.s3_collector import S3Collector
+from .collectors.docker_logs_collector import DockerLogsCollector
 
 
 class MonitoringWorkflow:
@@ -130,6 +131,13 @@ class MonitoringWorkflow:
         if config.targets.s3_buckets:
             self.collectors["s3"] = S3Collector(
                 config.targets.s3_buckets,
+                thresholds_dict,
+                self.logger
+            )
+
+        if config.targets.docker_logs:
+            self.collectors["dockerlogs"] = DockerLogsCollector(
+                config.targets.docker_logs,
                 thresholds_dict,
                 self.logger
             )

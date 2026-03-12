@@ -71,6 +71,18 @@ targets:
     - provider: "azure"
       endpoint: "https://your-resource.openai.azure.com"
 
+  # Docker Logs Error Monitoring
+  # Monitors error/exception/fatal counts in docker compose logs
+  # Separate from Docker container health checks — configure only for hosts needing deep monitoring
+  docker_logs:
+    - host: "10.0.0.1"
+      name: "my-app"
+      ssh_key_path: "/app/secrets/my_key"
+      port: 22
+      username: "ubuntu"
+      compose_file: "/opt/docker/my-app/docker-compose.yml"
+      error_patterns: "error|exception|fatal"  # Optional, this is the default
+
   # S3 Buckets
   s3_buckets:
     - bucket: "product-gen-media-tailorcast"
@@ -91,6 +103,12 @@ thresholds:
   # API response times (milliseconds)
   api_timeout_ms: 5000   # Timeout = RED
   api_slow_ms: 2000      # Slow but responding = YELLOW
+
+  # Docker logs error counts
+  docker_logs_errors_4h_red: 50       # Errors in last 4h to trigger RED
+  docker_logs_errors_4h_yellow: 20    # Errors in last 4h to trigger YELLOW
+  docker_logs_errors_24h_red: 200     # Errors in last 24h to trigger RED
+  docker_logs_errors_24h_yellow: 100  # Errors in last 24h to trigger YELLOW
 
 # Telegram Configuration
 telegram:

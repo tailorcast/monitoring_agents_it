@@ -19,6 +19,7 @@ class MonitoringState(TypedDict, total=False):
     ec2_results: List[CollectorResult]
     vps_results: List[CollectorResult]
     docker_results: List[CollectorResult]
+    docker_logs_results: List[CollectorResult]
     api_results: List[CollectorResult]
     database_results: List[CollectorResult]
     llm_results: List[CollectorResult]
