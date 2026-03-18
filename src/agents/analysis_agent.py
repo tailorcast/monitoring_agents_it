@@ -8,6 +8,7 @@ from typing import List, Dict
 from ..services.bedrock_client import BedrockClient
 from ..services.budget_tracker import BudgetTracker
 from ..utils.metrics import CollectorResult
+from ..utils.sanitize import sanitize_error
 from ..utils.status import HealthStatus
 
 
@@ -100,8 +101,9 @@ class AnalysisAgent:
 
         except Exception as e:
             self.logger.error(f"Analysis failed: {e}", exc_info=True)
+            safe_msg = sanitize_error(e)
             return {
-                "root_cause": f"Analysis error: {str(e)}",
+                "root_cause": f"Analysis error: {safe_msg}",
                 "severity": "unknown",
                 "affected_systems": [issue.target_name for issue in issues],
                 "recommendations": [
@@ -112,7 +114,7 @@ class AnalysisAgent:
                     }
                 ],
                 "token_usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
-                "error": str(e)
+                "error": safe_msg
             }
 
     def _build_analysis_prompt(self, issues: List[CollectorResult]) -> str:

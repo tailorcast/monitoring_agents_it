@@ -7,6 +7,7 @@ import logging
 from ..config.models import DockerLogsTargetConfig
 from ..utils.status import HealthStatus
 from ..utils.metrics import CollectorResult
+from ..utils.sanitize import sanitize_error
 from .base import BaseCollector, safe_collect
 from .ssh_helper import SSHHelper
 
@@ -118,13 +119,15 @@ class DockerLogsCollector(BaseCollector):
             )]
 
         except Exception as e:
+            self.logger.error(f"Docker logs collection failed for {target.name}: {e}")
+            safe_msg = sanitize_error(e)
             return [CollectorResult(
                 collector_name="dockerlogs",
                 target_name=target.name,
                 status=HealthStatus.RED,
-                metrics={"host": target.host},
-                message=f"Collection failed: {str(e)}",
-                error=str(e)
+                metrics={},
+                message=f"Collection failed: {safe_msg}",
+                error=safe_msg
             )]
 
         finally:

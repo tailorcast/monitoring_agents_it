@@ -22,6 +22,7 @@ except ImportError:
 from ..config.models import EC2InstanceConfig
 from ..utils.status import HealthStatus
 from ..utils.metrics import CollectorResult
+from ..utils.sanitize import sanitize_error
 from .base import BaseCollector, safe_collect
 
 
@@ -221,16 +222,15 @@ class EC2Collector(BaseCollector):
             )
 
         except Exception as e:
+            self.logger.error(f"EC2 collection failed for {config.name}: {e}")
+            safe_msg = sanitize_error(e)
             return CollectorResult(
                 collector_name="ec2",
                 target_name=config.name,
                 status=HealthStatus.RED,
-                metrics={
-                    "instance_id": config.instance_id,
-                    "region": config.region
-                },
-                message=f"Collection failed: {str(e)}",
-                error=str(e)
+                metrics={},
+                message=f"Collection failed: {safe_msg}",
+                error=safe_msg
             )
 
     def _get_instance_status(self, ec2_client, instance_id: str) -> dict:

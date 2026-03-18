@@ -8,6 +8,7 @@ import logging
 from ..config.models import VPSServerConfig
 from ..utils.status import HealthStatus
 from ..utils.metrics import CollectorResult
+from ..utils.sanitize import sanitize_error
 from .base import BaseCollector, safe_collect
 from .ssh_helper import SSHHelper
 
@@ -142,23 +143,26 @@ class DockerCollector(BaseCollector):
             return results
 
         except ImportError as e:
+            safe_msg = sanitize_error(e)
             return [CollectorResult(
                 collector_name="docker",
                 target_name=config.name,
                 status=HealthStatus.UNKNOWN,
-                metrics={"host": config.host},
-                message=str(e),
-                error=str(e)
+                metrics={},
+                message=safe_msg,
+                error=safe_msg
             )]
 
         except Exception as e:
+            self.logger.error(f"Docker collection failed for {config.name}: {e}")
+            safe_msg = sanitize_error(e)
             return [CollectorResult(
                 collector_name="docker",
                 target_name=config.name,
                 status=HealthStatus.RED,
-                metrics={"host": config.host},
-                message=f"Collection failed: {str(e)}",
-                error=str(e)
+                metrics={},
+                message=f"Collection failed: {safe_msg}",
+                error=safe_msg
             )]
 
         finally:

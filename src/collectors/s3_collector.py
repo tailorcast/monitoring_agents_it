@@ -14,6 +14,7 @@ except ImportError:
 from ..config.models import S3BucketConfig
 from ..utils.status import HealthStatus
 from ..utils.metrics import CollectorResult
+from ..utils.sanitize import sanitize_error
 from .base import BaseCollector, safe_collect
 
 
@@ -203,29 +204,22 @@ class S3Collector(BaseCollector):
 
         except ClientError as e:
             error_code = e.response['Error']['Code']
-            error_message = e.response['Error'].get('Message', str(e))
-
             return CollectorResult(
                 collector_name="s3",
                 target_name=config.bucket,
                 status=HealthStatus.RED,
-                metrics={
-                    "bucket": config.bucket,
-                    "region": config.region
-                },
+                metrics={},
                 message=f"AWS error: {error_code}",
-                error=error_message
+                error=f"ClientError: {error_code}"
             )
 
         except Exception as e:
+            safe_msg = sanitize_error(e)
             return CollectorResult(
                 collector_name="s3",
                 target_name=config.bucket,
                 status=HealthStatus.RED,
-                metrics={
-                    "bucket": config.bucket,
-                    "region": config.region
-                },
-                message=f"Check failed: {str(e)}",
-                error=str(e)
+                metrics={},
+                message=f"Check failed: {safe_msg}",
+                error=safe_msg
             )

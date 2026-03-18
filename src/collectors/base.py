@@ -16,6 +16,7 @@ except ImportError:
 
 from ..utils.status import HealthStatus
 from ..utils.metrics import CollectorResult
+from ..utils.sanitize import sanitize_error
 
 
 class BaseCollector(ABC):
@@ -111,12 +112,13 @@ def safe_collect(func):
             return await func(self, *args, **kwargs)
         except Exception as e:
             self.logger.error(f"Collection failed: {e}", exc_info=True)
+            safe_msg = sanitize_error(e)
             return [CollectorResult(
                 collector_name=self.__class__.__name__.lower().replace('collector', ''),
                 target_name="unknown",
                 status=HealthStatus.UNKNOWN,
                 metrics={},
-                message=f"Collection error: {str(e)}",
-                error=str(e)
+                message=f"Collection error: {safe_msg}",
+                error=safe_msg
             )]
     return wrapper

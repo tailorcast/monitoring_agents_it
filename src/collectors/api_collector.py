@@ -22,6 +22,7 @@ except ImportError:
 from ..config.models import APIEndpointConfig
 from ..utils.status import HealthStatus
 from ..utils.metrics import CollectorResult
+from ..utils.sanitize import sanitize_error
 from .base import BaseCollector, safe_collect
 
 
@@ -152,21 +153,23 @@ class APICollector(BaseCollector):
             )
 
         except httpx.RequestError as e:
+            safe_msg = sanitize_error(e)
             return CollectorResult(
                 collector_name="api",
                 target_name=config.name,
                 status=HealthStatus.RED,
-                metrics={"url": config.url},
-                message=f"Request error: {str(e)}",
-                error=str(e)
+                metrics={},
+                message=f"Request error: {safe_msg}",
+                error=safe_msg
             )
 
         except Exception as e:
+            safe_msg = sanitize_error(e)
             return CollectorResult(
                 collector_name="api",
                 target_name=config.name,
                 status=HealthStatus.UNKNOWN,
-                metrics={"url": config.url},
-                message=f"Unexpected error: {str(e)}",
-                error=str(e)
+                metrics={},
+                message=f"Unexpected error: {safe_msg}",
+                error=safe_msg
             )

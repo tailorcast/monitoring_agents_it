@@ -13,6 +13,7 @@ except ImportError:
 from ..config.models import DatabaseConfig
 from ..utils.status import HealthStatus
 from ..utils.metrics import CollectorResult
+from ..utils.sanitize import sanitize_error
 from .base import BaseCollector, safe_collect
 
 
@@ -168,7 +169,7 @@ class DatabaseCollector(BaseCollector):
                     metrics["table"] = config.table
                 except Exception as e:
                     self.logger.warning(f"Failed to query table {config.table}: {e}")
-                    metrics["table_query_error"] = str(e)
+                    metrics["table_query_error"] = type(e).__name__
 
             cursor.close()
             conn.close()
@@ -186,31 +187,37 @@ class DatabaseCollector(BaseCollector):
             )
 
         except psycopg2.OperationalError as e:
+            self.logger.error(f"Database connection failed for {target_name}: {e}")
+            safe_msg = sanitize_error(e)
             return CollectorResult(
                 collector_name="database",
                 target_name=target_name,
                 status=HealthStatus.RED,
                 metrics={},
-                message=f"Connection failed: {str(e)}",
-                error=str(e)
+                message=f"Connection failed: {safe_msg}",
+                error=safe_msg
             )
 
         except psycopg2.Error as e:
+            self.logger.error(f"Database error for {target_name}: {e}")
+            safe_msg = sanitize_error(e)
             return CollectorResult(
                 collector_name="database",
                 target_name=target_name,
                 status=HealthStatus.RED,
                 metrics={},
-                message=f"Database error: {str(e)}",
-                error=str(e)
+                message=f"Database error: {safe_msg}",
+                error=safe_msg
             )
 
         except Exception as e:
+            self.logger.error(f"Unexpected error for {target_name}: {e}")
+            safe_msg = sanitize_error(e)
             return CollectorResult(
                 collector_name="database",
                 target_name=target_name,
                 status=HealthStatus.UNKNOWN,
                 metrics={},
-                message=f"Unexpected error: {str(e)}",
-                error=str(e)
+                message=f"Unexpected error: {safe_msg}",
+                error=safe_msg
             )

@@ -18,6 +18,7 @@ except ImportError:
 from ..config.models import LLMModelConfig
 from ..utils.status import HealthStatus
 from ..utils.metrics import CollectorResult
+from ..utils.sanitize import sanitize_error
 from .base import BaseCollector, safe_collect
 
 
@@ -135,13 +136,14 @@ class LLMCollector(BaseCollector):
             return result
 
         except Exception as e:
+            safe_msg = sanitize_error(e)
             return CollectorResult(
                 collector_name="llm",
                 target_name=target_name,
                 status=HealthStatus.RED,
                 metrics={},
-                message=f"Unavailable: {str(e)}",
-                error=str(e)
+                message=f"Unavailable: {safe_msg}",
+                error=safe_msg
             )
 
     def _invoke_bedrock(self, model_id: str) -> CollectorResult:
@@ -210,13 +212,14 @@ class LLMCollector(BaseCollector):
             )
 
         except Exception as e:
+            safe_msg = sanitize_error(e)
             return CollectorResult(
                 collector_name="llm",
                 target_name=target_name,
                 status=HealthStatus.RED,
                 metrics={"model_id": model_id},
-                message=f"Unavailable: {str(e)}",
-                error=str(e)
+                message=f"Unavailable: {safe_msg}",
+                error=safe_msg
             )
 
     async def _check_azure(self, config: LLMModelConfig) -> CollectorResult:
@@ -312,11 +315,12 @@ class LLMCollector(BaseCollector):
             )
 
         except Exception as e:
+            safe_msg = sanitize_error(e)
             return CollectorResult(
                 collector_name="llm",
                 target_name=target_name,
                 status=HealthStatus.RED,
-                metrics={"endpoint": config.endpoint},
-                message=f"Unavailable: {str(e)}",
-                error=str(e)
+                metrics={},
+                message=f"Unavailable: {safe_msg}",
+                error=safe_msg
             )

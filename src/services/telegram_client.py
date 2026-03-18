@@ -193,12 +193,11 @@ class TelegramClient:
             context: Additional context about the error
         """
         error_type = type(error).__name__
-        error_msg = str(error)
 
         message = f"""🚨 **Monitoring System Error**
 
 **Error Type**: {error_type}
-**Message**: {error_msg}
+**Message**: The monitoring cycle failed to complete.
 """
 
         if context:

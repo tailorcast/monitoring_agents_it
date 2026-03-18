@@ -12,6 +12,9 @@ config/config.yaml
 # Secrets
 /secrets/
 
+# Metric history data
+data/
+
 # Temporary files
 /tmp/
 
