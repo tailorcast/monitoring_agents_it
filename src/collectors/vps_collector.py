@@ -119,7 +119,7 @@ class VPSCollector(BaseCollector):
             client = SSHHelper.create_client(config, self.logger)
 
             # Execute system commands
-            top_output = SSHHelper.exec_command(client, "top -bn1", timeout=10, logger=self.logger)
+            top_output = SSHHelper.exec_command(client, "top -bn2 -d1", timeout=15, logger=self.logger)
             free_output = SSHHelper.exec_command(client, "free -m", timeout=10, logger=self.logger)
             df_output = SSHHelper.exec_command(client, "df -h", timeout=10, logger=self.logger)
 
@@ -186,8 +186,12 @@ class VPSCollector(BaseCollector):
         """
         Parse CPU usage from top command output.
 
+        Uses 'top -bn2 -d1' so we get two iterations. The first iteration's
+        CPU values are unreliable (instantaneous snapshot), while the second
+        measures actual usage over a 1-second interval.
+
         Args:
-            top_output: Output from 'top -bn1' command
+            top_output: Output from 'top -bn2 -d1' command
 
         Returns:
             float: CPU usage percentage
@@ -195,25 +199,26 @@ class VPSCollector(BaseCollector):
         Raises:
             ValueError: If parsing fails
 
-        Example top output:
+        Example top output line:
             %Cpu(s):  5.2 us,  2.1 sy,  0.0 ni, 92.4 id,  0.2 wa,  0.0 hi,  0.1 si,  0.0 st
         """
-        # Look for CPU line
-        match = re.search(r'%?Cpu\(s\):\s*([\d.]+)\s+us,\s*([\d.]+)\s+sy', top_output)
-        if match:
-            user_cpu = float(match.group(1))
-            system_cpu = float(match.group(2))
+        # Find all CPU lines — use the last one (second iteration is reliable)
+        matches = re.findall(r'%?Cpu\(s\):\s*([\d.]+)\s+us,\s*([\d.]+)\s+sy', top_output)
+        if matches:
+            # Use last match (second iteration from top -bn2)
+            user_cpu = float(matches[-1][0])
+            system_cpu = float(matches[-1][1])
             return user_cpu + system_cpu
 
         # Alternative format (some systems)
-        match = re.search(r'%?Cpu\(s\):\s*([\d.]+)%?\s+us', top_output)
-        if match:
-            return float(match.group(1))
+        matches = re.findall(r'%?Cpu\(s\):\s*([\d.]+)%?\s+us', top_output)
+        if matches:
+            return float(matches[-1])
 
-        # Try to find idle CPU and calculate usage
-        match = re.search(r'([\d.]+)\s+id', top_output)
-        if match:
-            idle_cpu = float(match.group(1))
+        # Try to find idle CPU and calculate usage (use last occurrence)
+        matches = re.findall(r'([\d.]+)\s+id', top_output)
+        if matches:
+            idle_cpu = float(matches[-1])
             return 100.0 - idle_cpu
 
         raise ValueError(f"Cannot parse CPU from top output: {top_output[:200]}")
