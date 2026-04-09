@@ -1,6 +1,5 @@
 """VPS server metrics collector via SSH."""
 
-import re
 import asyncio
 from typing import List, Optional
 import logging
@@ -119,12 +118,18 @@ class VPSCollector(BaseCollector):
             client = SSHHelper.create_client(config, self.logger)
 
             # Execute system commands
-            top_output = SSHHelper.exec_command(client, "top -bn2 -d1", timeout=15, logger=self.logger)
+            # Read /proc/stat twice with 1s gap for accurate CPU measurement.
+            # Unlike 'top -bn2', this doesn't pollute the measurement with the
+            # tool's own CPU overhead.
+            cpu_stat_output = SSHHelper.exec_command(
+                client, "head -1 /proc/stat; sleep 1; head -1 /proc/stat",
+                timeout=15, logger=self.logger
+            )
             free_output = SSHHelper.exec_command(client, "free -m", timeout=10, logger=self.logger)
             df_output = SSHHelper.exec_command(client, "df -h", timeout=10, logger=self.logger)
 
             # Parse metrics
-            cpu_usage = self._parse_cpu(top_output)
+            cpu_usage = self._parse_cpu(cpu_stat_output)
             ram_usage = self._parse_memory(free_output)
             disk_free = self._parse_disk(df_output)
 
@@ -182,46 +187,56 @@ class VPSCollector(BaseCollector):
             if client:
                 SSHHelper.close_client(client, self.logger)
 
-    def _parse_cpu(self, top_output: str) -> float:
+    def _parse_cpu(self, stat_output: str) -> float:
         """
-        Parse CPU usage from top command output.
+        Parse CPU usage from two /proc/stat readings taken 1 second apart.
 
-        Uses 'top -bn2 -d1' so we get two iterations. The first iteration's
-        CPU values are unreliable (instantaneous snapshot), while the second
-        measures actual usage over a 1-second interval.
+        /proc/stat 'cpu' line format:
+            cpu  user nice system idle iowait irq softirq steal [guest guest_nice]
+
+        All values are cumulative jiffies since boot, summed across all CPUs.
+        The percentage is automatically normalized to 0-100% regardless of
+        core count.
 
         Args:
-            top_output: Output from 'top -bn2 -d1' command
+            stat_output: Output from 'head -1 /proc/stat; sleep 1; head -1 /proc/stat'
 
         Returns:
-            float: CPU usage percentage
+            float: CPU usage percentage (0-100)
 
         Raises:
             ValueError: If parsing fails
-
-        Example top output line:
-            %Cpu(s):  5.2 us,  2.1 sy,  0.0 ni, 92.4 id,  0.2 wa,  0.0 hi,  0.1 si,  0.0 st
         """
-        # Find all CPU lines — use the last one (second iteration is reliable)
-        matches = re.findall(r'%?Cpu\(s\):\s*([\d.]+)\s+us,\s*([\d.]+)\s+sy', top_output)
-        if matches:
-            # Use last match (second iteration from top -bn2)
-            user_cpu = float(matches[-1][0])
-            system_cpu = float(matches[-1][1])
-            return user_cpu + system_cpu
+        lines = [
+            line.strip() for line in stat_output.strip().split('\n')
+            if line.strip().startswith('cpu ')
+        ]
 
-        # Alternative format (some systems)
-        matches = re.findall(r'%?Cpu\(s\):\s*([\d.]+)%?\s+us', top_output)
-        if matches:
-            return float(matches[-1])
+        if len(lines) < 2:
+            raise ValueError(
+                f"Expected 2 cpu lines from /proc/stat, got {len(lines)}: "
+                f"{stat_output[:200]}"
+            )
 
-        # Try to find idle CPU and calculate usage (use last occurrence)
-        matches = re.findall(r'([\d.]+)\s+id', top_output)
-        if matches:
-            idle_cpu = float(matches[-1])
-            return 100.0 - idle_cpu
+        def parse_cpu_line(line: str) -> list:
+            # parts[0] is 'cpu', rest are numeric jiffie counters
+            return [int(x) for x in line.split()[1:]]
 
-        raise ValueError(f"Cannot parse CPU from top output: {top_output[:200]}")
+        try:
+            values1 = parse_cpu_line(lines[0])
+            values2 = parse_cpu_line(lines[1])
+        except (ValueError, IndexError) as e:
+            raise ValueError(f"Cannot parse /proc/stat cpu line: {e}")
+
+        deltas = [v2 - v1 for v1, v2 in zip(values1, values2)]
+        total = sum(deltas)
+        if total == 0:
+            return 0.0
+
+        # idle is index 3, iowait is index 4
+        idle = deltas[3] + (deltas[4] if len(deltas) > 4 else 0)
+
+        return ((total - idle) / total) * 100.0
 
     def _parse_memory(self, free_output: str) -> float:
         """

@@ -11,13 +11,20 @@ from src.utils.status import HealthStatus
 
 @pytest.fixture
 def mock_ssh_outputs():
-    """Create mock SSH command outputs."""
+    """Create mock SSH command outputs.
+
+    /proc/stat cpu line fields: user nice system idle iowait irq softirq steal
+    Two readings 1s apart simulate 'head -1 /proc/stat; sleep 1; head -1 /proc/stat'.
+    With delta total=200 and delta idle=159 → CPU = (200-159)/200*100 = 20.5%
+    """
     return {
-        'top': """top - 10:30:45 up 5 days, 12:30,  1 user,  load average: 0.50, 0.60, 0.70
-Tasks: 150 total,   1 running, 149 sleeping,   0 stopped,   0 zombie
-%Cpu(s): 15.2 us,  5.1 sy,  0.0 ni, 79.0 id,  0.5 wa,  0.0 hi,  0.2 si,  0.0 st
-KiB Mem :  8192000 total,  2048000 free,  4096000 used,  2048000 buff/cache
-KiB Swap:  2048000 total,  2048000 free,        0 used.  3072000 avail Mem""",
+        # ~20.5% CPU: delta user=30, nice=0, system=11, idle=150, iowait=9, irq=0, softirq=0, steal=0
+        'cpu_stat': "cpu  10000 0 5000 80000 500 0 0 0 0 0\n"
+                    "cpu  10030 0 5011 80150 509 0 0 0 0 0",
+
+        # ~95% CPU: delta user=170, nice=0, system=20, idle=8, iowait=2
+        'cpu_stat_high': "cpu  10000 0 5000 80000 500 0 0 0 0 0\n"
+                         "cpu  10170 0 5020 80008 502 0 0 0 0 0",
 
         'free': """              total        used        free      shared  buff/cache   available
 Mem:           8000        5000        1500         200        1500        2000
@@ -45,7 +52,7 @@ async def test_vps_collector_success(vps_configs, thresholds, logger, mock_ssh_o
         outputs = []
         for _ in vps_configs:
             outputs.extend([
-                mock_ssh_outputs['top'],
+                mock_ssh_outputs['cpu_stat'],
                 mock_ssh_outputs['free'],
                 mock_ssh_outputs['df']
             ])
@@ -78,11 +85,8 @@ async def test_vps_collector_high_cpu(vps_configs, thresholds, logger, mock_ssh_
         mock_ssh.create_client.return_value = mock_client
         mock_ssh.is_available.return_value = True
 
-        # Mock high CPU output
-        high_cpu_output = mock_ssh_outputs['top'].replace('15.2 us,  5.1 sy', '85.0 us, 10.0 sy')
-
         mock_ssh.exec_command.side_effect = [
-            high_cpu_output,
+            mock_ssh_outputs['cpu_stat_high'],
             mock_ssh_outputs['free'],
             mock_ssh_outputs['df']
         ]
@@ -111,7 +115,7 @@ async def test_vps_collector_low_disk(vps_configs, thresholds, logger, mock_ssh_
 /dev/sda1       51474912 48901160   2573752  95% /"""
 
         mock_ssh.exec_command.side_effect = [
-            mock_ssh_outputs['top'],
+            mock_ssh_outputs['cpu_stat'],
             mock_ssh_outputs['free'],
             low_disk_output
         ]
@@ -199,15 +203,14 @@ async def test_vps_collector_parsing_edge_cases(vps_configs, thresholds, logger)
         mock_ssh.create_client.return_value = mock_client
         mock_ssh.is_available.return_value = True
 
-        # Mock alternative output format (different Linux distribution)
-        alt_top = """top - 10:30:45 up 5 days
-%Cpu(s): 20.5 us,  3.2 sy,  0.0 ni, 75.0 id,  1.3 wa,  0.0 hi,  0.0 si,  0.0 st"""
+        # Mock /proc/stat with different field count (older kernel, no guest fields)
+        alt_cpu_stat = "cpu  10000 0 5000 80000 500 0 0 0\ncpu  10030 0 5011 80150 509 0 0 0"
 
         alt_free = """       total   used   free  shared  buffers  cached
 Mem:    8000   6000   2000     100      500    1000"""
 
         mock_ssh.exec_command.side_effect = [
-            alt_top,
+            alt_cpu_stat,
             alt_free,
             "Filesystem     Size  Used Avail Use% Mounted on\n/dev/sda1       50G   30G   20G  60% /"
         ]
@@ -236,7 +239,7 @@ async def test_vps_collector_parallel_execution(vps_configs, thresholds, logger,
         outputs = []
         for _ in vps_configs:
             outputs.extend([
-                mock_ssh_outputs['top'], mock_ssh_outputs['free'], mock_ssh_outputs['df']
+                mock_ssh_outputs['cpu_stat'], mock_ssh_outputs['free'], mock_ssh_outputs['df']
             ])
         mock_ssh.exec_command.side_effect = outputs
 
