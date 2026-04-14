@@ -49,14 +49,15 @@ async def test_vps_collector_success(vps_configs, thresholds, logger, mock_ssh_o
         mock_ssh.create_client.return_value = mock_client
         mock_ssh.is_available.return_value = True
 
-        # Mock SSH outputs for all configured servers (4 calls each)
+        # Mock SSH outputs for all configured servers
+        # Order: free, df, stat1, stat2 (CPU measured last, after settling)
         outputs = []
         for _ in vps_configs:
             outputs.extend([
+                mock_ssh_outputs['free'],
+                mock_ssh_outputs['df'],
                 mock_ssh_outputs['cpu_stat_1'],
                 mock_ssh_outputs['cpu_stat_2'],
-                mock_ssh_outputs['free'],
-                mock_ssh_outputs['df']
             ])
 
         mock_ssh.exec_command.side_effect = outputs
@@ -89,10 +90,10 @@ async def test_vps_collector_high_cpu(vps_configs, thresholds, logger, mock_ssh_
         mock_ssh.is_available.return_value = True
 
         mock_ssh.exec_command.side_effect = [
+            mock_ssh_outputs['free'],
+            mock_ssh_outputs['df'],
             mock_ssh_outputs['cpu_stat_high_1'],
             mock_ssh_outputs['cpu_stat_high_2'],
-            mock_ssh_outputs['free'],
-            mock_ssh_outputs['df']
         ]
 
         # Execute
@@ -120,10 +121,10 @@ async def test_vps_collector_low_disk(vps_configs, thresholds, logger, mock_ssh_
 /dev/sda1       51474912 48901160   2573752  95% /"""
 
         mock_ssh.exec_command.side_effect = [
+            mock_ssh_outputs['free'],
+            low_disk_output,
             mock_ssh_outputs['cpu_stat_1'],
             mock_ssh_outputs['cpu_stat_2'],
-            mock_ssh_outputs['free'],
-            low_disk_output
         ]
 
         # Execute
@@ -218,10 +219,10 @@ async def test_vps_collector_parsing_edge_cases(vps_configs, thresholds, logger)
 Mem:    8000   6000   2000     100      500    1000"""
 
         mock_ssh.exec_command.side_effect = [
+            alt_free,
+            "Filesystem     Size  Used Avail Use% Mounted on\n/dev/sda1       50G   30G   20G  60% /",
             alt_cpu_stat_1,
             alt_cpu_stat_2,
-            alt_free,
-            "Filesystem     Size  Used Avail Use% Mounted on\n/dev/sda1       50G   30G   20G  60% /"
         ]
 
         # Execute
@@ -245,14 +246,15 @@ async def test_vps_collector_parallel_execution(vps_configs, thresholds, logger,
         mock_ssh.create_client.return_value = mock_client
         mock_ssh.is_available.return_value = True
 
-        # Mock SSH outputs for all configured servers (4 calls each)
+        # Mock SSH outputs for all configured servers
+        # Order: free, df, stat1, stat2 (CPU measured last)
         outputs = []
         for _ in vps_configs:
             outputs.extend([
+                mock_ssh_outputs['free'],
+                mock_ssh_outputs['df'],
                 mock_ssh_outputs['cpu_stat_1'],
                 mock_ssh_outputs['cpu_stat_2'],
-                mock_ssh_outputs['free'],
-                mock_ssh_outputs['df']
             ])
         mock_ssh.exec_command.side_effect = outputs
 

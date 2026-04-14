@@ -119,19 +119,24 @@ class VPSCollector(BaseCollector):
             client = SSHHelper.create_client(config, self.logger)
 
             # Execute system commands
-            # Read /proc/stat twice with a local sleep in between.
-            # Using Python sleep avoids depending on the remote user's PATH
-            # having 'sleep' (e.g. restricted 'monitor' accounts).
+            # Collect RAM and disk FIRST — these double as settling time
+            # so parallel SSH handshakes (Docker/DockerLogs collectors also
+            # connect to this host) finish before we measure CPU.
+            free_output = SSHHelper.exec_command(client, "free -m", timeout=10, logger=self.logger)
+            df_output = SSHHelper.exec_command(client, "df -h", timeout=10, logger=self.logger)
+
+            # CPU: two /proc/stat snapshots with a local sleep in between.
+            # Python-side sleep avoids depending on the remote PATH having
+            # 'sleep'. 2-second window dilutes any residual overhead from
+            # parallel Docker commands still running on this host.
             stat_reading1 = SSHHelper.exec_command(
                 client, "head -1 /proc/stat", timeout=10, logger=self.logger
             )
-            time.sleep(1)
+            time.sleep(2)
             stat_reading2 = SSHHelper.exec_command(
                 client, "head -1 /proc/stat", timeout=10, logger=self.logger
             )
             cpu_stat_output = stat_reading1.strip() + "\n" + stat_reading2.strip()
-            free_output = SSHHelper.exec_command(client, "free -m", timeout=10, logger=self.logger)
-            df_output = SSHHelper.exec_command(client, "df -h", timeout=10, logger=self.logger)
 
             # Parse metrics
             cpu_usage = self._parse_cpu(cpu_stat_output)
