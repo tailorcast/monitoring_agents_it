@@ -14,17 +14,17 @@ def mock_ssh_outputs():
     """Create mock SSH command outputs.
 
     /proc/stat cpu line fields: user nice system idle iowait irq softirq steal
-    Two readings 1s apart simulate 'head -1 /proc/stat; sleep 1; head -1 /proc/stat'.
+    Two separate readings simulate the two 'head -1 /proc/stat' calls.
     With delta total=200 and delta idle=159 → CPU = (200-159)/200*100 = 20.5%
     """
     return {
-        # ~20.5% CPU: delta user=30, nice=0, system=11, idle=150, iowait=9, irq=0, softirq=0, steal=0
-        'cpu_stat': "cpu  10000 0 5000 80000 500 0 0 0 0 0\n"
-                    "cpu  10030 0 5011 80150 509 0 0 0 0 0",
+        # ~20.5% CPU: delta user=30, nice=0, system=11, idle=150, iowait=9
+        'cpu_stat_1': "cpu  10000 0 5000 80000 500 0 0 0 0 0\n",
+        'cpu_stat_2': "cpu  10030 0 5011 80150 509 0 0 0 0 0\n",
 
         # ~95% CPU: delta user=170, nice=0, system=20, idle=8, iowait=2
-        'cpu_stat_high': "cpu  10000 0 5000 80000 500 0 0 0 0 0\n"
-                         "cpu  10170 0 5020 80008 502 0 0 0 0 0",
+        'cpu_stat_high_1': "cpu  10000 0 5000 80000 500 0 0 0 0 0\n",
+        'cpu_stat_high_2': "cpu  10170 0 5020 80008 502 0 0 0 0 0\n",
 
         'free': """              total        used        free      shared  buff/cache   available
 Mem:           8000        5000        1500         200        1500        2000
@@ -42,17 +42,19 @@ async def test_vps_collector_success(vps_configs, thresholds, logger, mock_ssh_o
     """Test successful VPS health checks using real config."""
     collector = VPSCollector(vps_configs, thresholds, logger)
 
-    with patch('src.collectors.vps_collector.SSHHelper') as mock_ssh:
+    with patch('src.collectors.vps_collector.SSHHelper') as mock_ssh, \
+         patch('src.collectors.vps_collector.time') as mock_time:
         # Mock SSH operations
         mock_client = MagicMock()
         mock_ssh.create_client.return_value = mock_client
         mock_ssh.is_available.return_value = True
 
-        # Mock SSH outputs for all configured servers
+        # Mock SSH outputs for all configured servers (4 calls each)
         outputs = []
         for _ in vps_configs:
             outputs.extend([
-                mock_ssh_outputs['cpu_stat'],
+                mock_ssh_outputs['cpu_stat_1'],
+                mock_ssh_outputs['cpu_stat_2'],
                 mock_ssh_outputs['free'],
                 mock_ssh_outputs['df']
             ])
@@ -80,13 +82,15 @@ async def test_vps_collector_high_cpu(vps_configs, thresholds, logger, mock_ssh_
     """Test VPS with high CPU usage (RED)."""
     collector = VPSCollector([vps_configs[0]], thresholds, logger)
 
-    with patch('src.collectors.vps_collector.SSHHelper') as mock_ssh:
+    with patch('src.collectors.vps_collector.SSHHelper') as mock_ssh, \
+         patch('src.collectors.vps_collector.time') as mock_time:
         mock_client = MagicMock()
         mock_ssh.create_client.return_value = mock_client
         mock_ssh.is_available.return_value = True
 
         mock_ssh.exec_command.side_effect = [
-            mock_ssh_outputs['cpu_stat_high'],
+            mock_ssh_outputs['cpu_stat_high_1'],
+            mock_ssh_outputs['cpu_stat_high_2'],
             mock_ssh_outputs['free'],
             mock_ssh_outputs['df']
         ]
@@ -105,7 +109,8 @@ async def test_vps_collector_low_disk(vps_configs, thresholds, logger, mock_ssh_
     """Test VPS with low disk space (YELLOW/RED)."""
     collector = VPSCollector([vps_configs[0]], thresholds, logger)
 
-    with patch('src.collectors.vps_collector.SSHHelper') as mock_ssh:
+    with patch('src.collectors.vps_collector.SSHHelper') as mock_ssh, \
+         patch('src.collectors.vps_collector.time') as mock_time:
         mock_client = MagicMock()
         mock_ssh.create_client.return_value = mock_client
         mock_ssh.is_available.return_value = True
@@ -115,7 +120,8 @@ async def test_vps_collector_low_disk(vps_configs, thresholds, logger, mock_ssh_
 /dev/sda1       51474912 48901160   2573752  95% /"""
 
         mock_ssh.exec_command.side_effect = [
-            mock_ssh_outputs['cpu_stat'],
+            mock_ssh_outputs['cpu_stat_1'],
+            mock_ssh_outputs['cpu_stat_2'],
             mock_ssh_outputs['free'],
             low_disk_output
         ]
@@ -198,19 +204,22 @@ async def test_vps_collector_parsing_edge_cases(vps_configs, thresholds, logger)
     """Test parsing of various Linux output formats."""
     collector = VPSCollector([vps_configs[0]], thresholds, logger)
 
-    with patch('src.collectors.vps_collector.SSHHelper') as mock_ssh:
+    with patch('src.collectors.vps_collector.SSHHelper') as mock_ssh, \
+         patch('src.collectors.vps_collector.time') as mock_time:
         mock_client = MagicMock()
         mock_ssh.create_client.return_value = mock_client
         mock_ssh.is_available.return_value = True
 
         # Mock /proc/stat with different field count (older kernel, no guest fields)
-        alt_cpu_stat = "cpu  10000 0 5000 80000 500 0 0 0\ncpu  10030 0 5011 80150 509 0 0 0"
+        alt_cpu_stat_1 = "cpu  10000 0 5000 80000 500 0 0 0\n"
+        alt_cpu_stat_2 = "cpu  10030 0 5011 80150 509 0 0 0\n"
 
         alt_free = """       total   used   free  shared  buffers  cached
 Mem:    8000   6000   2000     100      500    1000"""
 
         mock_ssh.exec_command.side_effect = [
-            alt_cpu_stat,
+            alt_cpu_stat_1,
+            alt_cpu_stat_2,
             alt_free,
             "Filesystem     Size  Used Avail Use% Mounted on\n/dev/sda1       50G   30G   20G  60% /"
         ]
@@ -230,16 +239,20 @@ async def test_vps_collector_parallel_execution(vps_configs, thresholds, logger,
     # Use all configured servers from vps_configs
     collector = VPSCollector(vps_configs, thresholds, logger)
 
-    with patch('src.collectors.vps_collector.SSHHelper') as mock_ssh:
+    with patch('src.collectors.vps_collector.SSHHelper') as mock_ssh, \
+         patch('src.collectors.vps_collector.time') as mock_time:
         mock_client = MagicMock()
         mock_ssh.create_client.return_value = mock_client
         mock_ssh.is_available.return_value = True
 
-        # Mock SSH outputs for all configured servers
+        # Mock SSH outputs for all configured servers (4 calls each)
         outputs = []
         for _ in vps_configs:
             outputs.extend([
-                mock_ssh_outputs['cpu_stat'], mock_ssh_outputs['free'], mock_ssh_outputs['df']
+                mock_ssh_outputs['cpu_stat_1'],
+                mock_ssh_outputs['cpu_stat_2'],
+                mock_ssh_outputs['free'],
+                mock_ssh_outputs['df']
             ])
         mock_ssh.exec_command.side_effect = outputs
 
@@ -249,7 +262,7 @@ async def test_vps_collector_parallel_execution(vps_configs, thresholds, logger,
         results = await collector.collect()
         duration = time.time() - start
 
-        # Should complete quickly (parallel execution)
+        # Should complete quickly (parallel execution, time.sleep is mocked)
         assert duration < 2.0
         assert len(results) == len(vps_configs)
 

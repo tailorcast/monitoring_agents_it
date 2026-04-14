@@ -1,6 +1,7 @@
 """VPS server metrics collector via SSH."""
 
 import asyncio
+import time
 from typing import List, Optional
 import logging
 
@@ -118,13 +119,17 @@ class VPSCollector(BaseCollector):
             client = SSHHelper.create_client(config, self.logger)
 
             # Execute system commands
-            # Read /proc/stat twice with 1s gap for accurate CPU measurement.
-            # Unlike 'top -bn2', this doesn't pollute the measurement with the
-            # tool's own CPU overhead.
-            cpu_stat_output = SSHHelper.exec_command(
-                client, "head -1 /proc/stat; sleep 1; head -1 /proc/stat",
-                timeout=15, logger=self.logger
+            # Read /proc/stat twice with a local sleep in between.
+            # Using Python sleep avoids depending on the remote user's PATH
+            # having 'sleep' (e.g. restricted 'monitor' accounts).
+            stat_reading1 = SSHHelper.exec_command(
+                client, "head -1 /proc/stat", timeout=10, logger=self.logger
             )
+            time.sleep(1)
+            stat_reading2 = SSHHelper.exec_command(
+                client, "head -1 /proc/stat", timeout=10, logger=self.logger
+            )
+            cpu_stat_output = stat_reading1.strip() + "\n" + stat_reading2.strip()
             free_output = SSHHelper.exec_command(client, "free -m", timeout=10, logger=self.logger)
             df_output = SSHHelper.exec_command(client, "df -h", timeout=10, logger=self.logger)
 
@@ -199,7 +204,7 @@ class VPSCollector(BaseCollector):
         core count.
 
         Args:
-            stat_output: Output from 'head -1 /proc/stat; sleep 1; head -1 /proc/stat'
+            stat_output: Two /proc/stat 'cpu' lines joined by newline
 
         Returns:
             float: CPU usage percentage (0-100)
