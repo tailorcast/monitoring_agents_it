@@ -14,10 +14,10 @@ class BudgetTracker:
     at midnight. Prevents requests when daily budget exceeded.
     """
 
-    # Claude Haiku 3.5 pricing (as of January 2025)
+    # Claude Haiku 4.5 pricing
     # Source: https://aws.amazon.com/bedrock/pricing/
-    INPUT_PRICE_PER_1M = 0.80   # $0.80 per 1M input tokens
-    OUTPUT_PRICE_PER_1M = 4.00  # $4.00 per 1M output tokens
+    INPUT_PRICE_PER_1M = 1.00   # $1.00 per 1M input tokens
+    OUTPUT_PRICE_PER_1M = 5.00  # $5.00 per 1M output tokens
 
     def __init__(self, daily_budget_usd: float, state_file: str = "/tmp/budget_state.json", logger: logging.Logger = None):
         """

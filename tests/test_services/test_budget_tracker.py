@@ -7,6 +7,10 @@ from pathlib import Path
 from datetime import date
 from src.services.budget_tracker import BudgetTracker
 
+# Reference the tracker's own rates so tests survive model/price changes
+IN_PRICE = BudgetTracker.INPUT_PRICE_PER_1M
+OUT_PRICE = BudgetTracker.OUTPUT_PRICE_PER_1M
+
 
 class TestBudgetTracker:
     """Test suite for BudgetTracker."""
@@ -25,14 +29,13 @@ class TestBudgetTracker:
         with tempfile.NamedTemporaryFile(delete=False) as f:
             tracker = BudgetTracker(daily_budget_usd=3.0, state_file=f.name)
 
-            # Test cost calculation
-            # Input: 10,000 tokens @ $0.80/1M = $0.008
-            # Output: 2,000 tokens @ $4.00/1M = $0.008
-            # Total: $0.016
+            # Input: 10,000 tokens @ $1.00/1M = $0.010
+            # Output: 2,000 tokens @ $5.00/1M = $0.010
+            # Total: $0.020 (Haiku 4.5 rates)
             cost = tracker._calculate_cost(input_tokens=10000, output_tokens=2000)
-            expected_cost = (10000 / 1_000_000) * 0.80 + (2000 / 1_000_000) * 4.00
+            expected_cost = (10000 / 1_000_000) * IN_PRICE + (2000 / 1_000_000) * OUT_PRICE
             assert abs(cost - expected_cost) < 0.0001
-            assert abs(cost - 0.016) < 0.0001
+            assert abs(cost - 0.020) < 0.0001
 
     def test_record_usage(self):
         """Test recording token usage and updating costs."""
@@ -43,14 +46,14 @@ class TestBudgetTracker:
             tracker.record_usage(input_tokens=10000, output_tokens=2000)
 
             # Check spending updated
-            expected_cost = (10000 / 1_000_000) * 0.80 + (2000 / 1_000_000) * 4.00
+            expected_cost = (10000 / 1_000_000) * IN_PRICE + (2000 / 1_000_000) * OUT_PRICE
             assert abs(tracker.today_spent - expected_cost) < 0.0001
 
             # Record more usage
             tracker.record_usage(input_tokens=5000, output_tokens=1000)
 
             # Check cumulative spending
-            total_expected = expected_cost + (5000 / 1_000_000) * 0.80 + (1000 / 1_000_000) * 4.00
+            total_expected = expected_cost + (5000 / 1_000_000) * IN_PRICE + (1000 / 1_000_000) * OUT_PRICE
             assert abs(tracker.today_spent - total_expected) < 0.0001
 
     def test_budget_enforcement(self):
@@ -73,16 +76,17 @@ class TestBudgetTracker:
         with tempfile.NamedTemporaryFile(delete=False) as f:
             tracker = BudgetTracker(daily_budget_usd=3.0, state_file=f.name)
 
-            # Large request that would exceed budget
-            # Estimate 1M tokens total = ~$2.40 (assuming 50/50 split)
-            # With 3.0 budget, should allow
-            assert tracker.can_make_request(estimated_tokens=1_000_000) is True
+            # can_make_request estimates a 50/50 input/output split, so derive
+            # the token count from the current rates rather than hardcoding it.
+            cost_per_token = (IN_PRICE + OUT_PRICE) / 2 / 1_000_000
 
-            # After spending some, check again
-            tracker.record_usage(input_tokens=500_000, output_tokens=500_000)
+            # A request costing ~80% of the budget should be allowed
+            fits = int(3.0 * 0.8 / cost_per_token)
+            assert tracker.can_make_request(estimated_tokens=fits) is True
 
-            # Now another 1M token request would exceed
-            assert tracker.can_make_request(estimated_tokens=1_000_000) is False
+            # After spending that much, the same request would exceed the budget
+            tracker.record_usage(input_tokens=fits // 2, output_tokens=fits // 2)
+            assert tracker.can_make_request(estimated_tokens=fits) is False
 
     def test_get_budget_status(self):
         """Test budget status reporting."""
@@ -100,7 +104,7 @@ class TestBudgetTracker:
             tracker.record_usage(input_tokens=100_000, output_tokens=100_000)
             status = tracker.get_budget_status()
 
-            expected_spent = (100_000 / 1_000_000) * 0.80 + (100_000 / 1_000_000) * 4.00
+            expected_spent = (100_000 / 1_000_000) * IN_PRICE + (100_000 / 1_000_000) * OUT_PRICE
             assert abs(status['spent_today'] - expected_spent) < 0.0001
             assert abs(status['remaining'] - (3.0 - expected_spent)) < 0.0001
             assert status['utilization_pct'] > 0
@@ -116,7 +120,7 @@ class TestBudgetTracker:
 
             # Spend just over 80% of budget to trigger alert
             # 80% of $3 = $2.40, so spend $2.41
-            # Cost = (input/1M * 0.80) + (output/1M * 4.00)
+            # Cost = (input/1M * IN_PRICE) + (output/1M * OUT_PRICE)
             # To get $2.41: 500k input + 502.5k output = 0.4 + 2.01 = 2.41
             tracker.record_usage(input_tokens=500_000, output_tokens=502_500)
 
@@ -208,9 +212,9 @@ class TestBudgetTracker:
                 tracker.record_usage(input_tokens=15_000, output_tokens=15_000)
 
             # Total cost should be under $3
-            # Per cycle: (15k/1M * 0.80) + (15k/1M * 4.00) = 0.012 + 0.06 = $0.072
-            # 4 cycles: $0.288
-            expected_total = 4 * ((15_000 / 1_000_000) * 0.80 + (15_000 / 1_000_000) * 4.00)
+            # Per cycle: (15k/1M * IN_PRICE) + (15k/1M * OUT_PRICE) = 0.015 + 0.075 = $0.090
+            # 4 cycles: $0.36
+            expected_total = 4 * ((15_000 / 1_000_000) * IN_PRICE + (15_000 / 1_000_000) * OUT_PRICE)
             assert abs(tracker.today_spent - expected_total) < 0.001
             assert tracker.today_spent < 3.0
 
@@ -238,8 +242,8 @@ class TestBudgetTracker:
             # Record large usage (1M input, 1M output)
             tracker.record_usage(input_tokens=1_000_000, output_tokens=1_000_000)
 
-            # Cost: (1M/1M * 0.80) + (1M/1M * 4.00) = $4.80
-            expected_cost = 0.80 + 4.00
+            # Cost: (1M/1M * IN_PRICE) + (1M/1M * OUT_PRICE) = $4.80
+            expected_cost = IN_PRICE + OUT_PRICE
             assert abs(tracker.today_spent - expected_cost) < 0.001
 
             # Clean up

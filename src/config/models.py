@@ -134,7 +134,7 @@ class TelegramConfig(BaseModel):
 class LLMConfig(BaseModel):
     """LLM configuration for AI agents."""
     provider: str = "bedrock"
-    model: str = "us.anthropic.claude-3-5-haiku-20241022-v1:0"  # Full Bedrock model ID
+    model: str = "us.anthropic.claude-haiku-4-5-20251001-v1:0"  # Full Bedrock model ID
     region: str = "us-east-1"
     max_tokens: int = Field(default=4096, ge=100, le=1000000)
     daily_budget_usd: float = Field(default=3.0, ge=0.1)

@@ -49,7 +49,7 @@ class BedrockClient:
             self.logger.error(f"Failed to create Bedrock client: {e}")
             raise
 
-        # Model ID should be full ID (e.g., "us.anthropic.claude-3-5-haiku-20241022-v1:0")
+        # Model ID should be full ID (e.g., "us.anthropic.claude-haiku-4-5-20251001-v1:0")
         self.model_id = llm_config.model
 
         self.logger.info(f"Bedrock client initialized with model: {self.model_id}")

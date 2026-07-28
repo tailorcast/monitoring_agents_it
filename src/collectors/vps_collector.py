@@ -25,6 +25,14 @@ from .ssh_helper import SSHHelper
 class VPSCollector(BaseCollector):
     """Collector for VPS server system metrics via SSH."""
 
+    # Seconds to wait after SSH login (and after the RAM/disk commands)
+    # before taking the first /proc/stat snapshot, so login and parallel
+    # collector activity are excluded from the CPU window.
+    CPU_SETTLE_SECONDS = 8
+
+    # Width of the /proc/stat sampling window in seconds.
+    CPU_SAMPLE_SECONDS = 5
+
     def __init__(
         self,
         config: List[VPSServerConfig],
@@ -125,14 +133,20 @@ class VPSCollector(BaseCollector):
             free_output = SSHHelper.exec_command(client, "free -m", timeout=10, logger=self.logger)
             df_output = SSHHelper.exec_command(client, "df -h", timeout=10, logger=self.logger)
 
+            # Explicit settle delay before sampling CPU. SSH login itself
+            # (sshd fork, PAM, key exchange) plus the parallel Docker/log
+            # collectors connecting to the same host produce a CPU spike that
+            # otherwise dominates the measurement window on idle hosts.
+            time.sleep(self.CPU_SETTLE_SECONDS)
+
             # CPU: two /proc/stat snapshots with a local sleep in between.
             # Python-side sleep avoids depending on the remote PATH having
-            # 'sleep'. 2-second window dilutes any residual overhead from
-            # parallel Docker commands still running on this host.
+            # 'sleep'. A wider window further dilutes any residual overhead
+            # from parallel commands still running on this host.
             stat_reading1 = SSHHelper.exec_command(
                 client, "head -1 /proc/stat", timeout=10, logger=self.logger
             )
-            time.sleep(2)
+            time.sleep(self.CPU_SAMPLE_SECONDS)
             stat_reading2 = SSHHelper.exec_command(
                 client, "head -1 /proc/stat", timeout=10, logger=self.logger
             )
@@ -199,7 +213,7 @@ class VPSCollector(BaseCollector):
 
     def _parse_cpu(self, stat_output: str) -> float:
         """
-        Parse CPU usage from two /proc/stat readings taken 1 second apart.
+        Parse CPU usage from two /proc/stat readings taken CPU_SAMPLE_SECONDS apart.
 
         /proc/stat 'cpu' line format:
             cpu  user nice system idle iowait irq softirq steal [guest guest_nice]

@@ -151,7 +151,7 @@ targets:
 
   llm_models:
     - provider: "bedrock"
-      model_id: "us.anthropic.claude-3-5-haiku-20241022-v1:0"
+      model_id: "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 
   docker_logs:
     - host: "10.0.0.1"
@@ -182,7 +182,7 @@ telegram:
 
 llm:
   provider: "bedrock"
-  model: "us.anthropic.claude-3-5-haiku-20241022-v1:0"
+  model: "us.anthropic.claude-haiku-4-5-20251001-v1:0"
   region: "us-east-1"
   max_tokens: 4096
   daily_budget_usd: 3.0
