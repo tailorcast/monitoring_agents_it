@@ -99,24 +99,33 @@ All should succeed without errors or permission denials.
 
 ## Step 5 — Update config.yaml
 
-For each VPS, Docker, and Docker Logs target, update the SSH credentials:
+For each VPS and Docker Logs target, update the SSH credentials. The `username`
+must match the account created in Step 2 exactly — a valid key presented for a
+nonexistent user fails with a bare `Authentication failed.`, with no hint that
+the user is the problem.
+
+There is no separate Docker section: the Docker collector reuses `vps_servers`,
+so fixing a host there covers both.
 
 ```yaml
 vps_servers:
   - name: my-server
     host: your-server-ip
     username: monitoring                        # was "ubuntu" or "root"
-    ssh_key_path: ~/.ssh/monitoring_agent_key   # new key
+    ssh_key_path: ./secrets/monitoring_agent_key  # relative to the app working dir
     port: 22
 
-docker_logs_targets:
+docker_logs:
   - name: my-app
     host: your-server-ip
     username: monitoring
-    ssh_key_path: ~/.ssh/monitoring_agent_key
+    ssh_key_path: ./secrets/monitoring_agent_key
     compose_file: /path/to/docker-compose.yml
     error_patterns: "error|exception|fatal"
 ```
+
+When running in Docker, `secrets/` is mounted at `/app/secrets` and the container
+runs as uid 1000 — the key file must be readable by that uid.
 
 ---
 

@@ -52,8 +52,18 @@ class SSHHelper:
             return client
 
         except paramiko.AuthenticationException as e:
-            logger.error(f"Authentication failed for {config.host}: {e}")
-            raise
+            # paramiko's message is a bare "Authentication failed." — it can't
+            # distinguish a rejected key from a nonexistent user, and sshd won't
+            # say which. Name the username and key so the report is actionable.
+            logger.error(
+                f"Authentication failed for {config.username}@{config.host} "
+                f"using key {config.ssh_key_path}: {e}"
+            )
+            raise paramiko.AuthenticationException(
+                f"Authentication failed for user '{config.username}' "
+                f"(check the username exists on the host and the key is in "
+                f"its authorized_keys)"
+            ) from e
 
         except paramiko.SSHException as e:
             logger.error(f"SSH error connecting to {config.host}: {e}")
