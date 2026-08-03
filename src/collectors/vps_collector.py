@@ -19,19 +19,28 @@ from ..utils.status import HealthStatus
 from ..utils.metrics import CollectorResult
 from ..utils.sanitize import sanitize_error
 from .base import BaseCollector, safe_collect
+from .host_lock import get_host_lock
 from .ssh_helper import SSHHelper
 
 
 class VPSCollector(BaseCollector):
     """Collector for VPS server system metrics via SSH."""
 
-    # Seconds to wait after SSH login (and after the RAM/disk commands)
-    # before taking the first /proc/stat snapshot, so login and parallel
-    # collector activity are excluded from the CPU window.
-    CPU_SETTLE_SECONDS = 8
+    # Seconds to wait after SSH login (and after the RAM/disk commands) before
+    # taking the first /proc/stat snapshot, so the cost of logging in is not
+    # counted as host load.
+    CPU_SETTLE_SECONDS = 2
 
-    # Width of the /proc/stat sampling window in seconds.
-    CPU_SAMPLE_SECONDS = 5
+    # Width of the /proc/stat sampling window in seconds. This is a spot sample
+    # of instantaneous load — alerting is driven by load average instead, see
+    # _load_status(). Kept short since it only feeds a reported metric now.
+    CPU_SAMPLE_SECONDS = 3
+
+    # 5-minute load average per core. 1.0 = CPUs exactly saturated, so RED at
+    # 2.0 means work has been queuing at twice capacity for minutes. Overridable
+    # via load_red / load_yellow in the thresholds config.
+    DEFAULT_LOAD_RED = 2.0
+    DEFAULT_LOAD_YELLOW = 1.0
 
     def __init__(
         self,
@@ -106,9 +115,11 @@ class VPSCollector(BaseCollector):
         Returns:
             CollectorResult: Server metrics result
         """
-        # Run blocking SSH calls in thread pool
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self._collect_server, config)
+        # Serialize with the Docker/DockerLogs collectors targeting this same
+        # host, so their work is not counted as this host's CPU load.
+        async with get_host_lock(config.host):
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(None, self._collect_server, config)
 
     @traceable(name="VPSCollector._collect_server")
     def _collect_server(self, config: VPSServerConfig) -> CollectorResult:
@@ -127,22 +138,26 @@ class VPSCollector(BaseCollector):
             client = SSHHelper.create_client(config, self.logger)
 
             # Execute system commands
-            # Collect RAM and disk FIRST — these double as settling time
-            # so parallel SSH handshakes (Docker/DockerLogs collectors also
-            # connect to this host) finish before we measure CPU.
             free_output = SSHHelper.exec_command(client, "free -m", timeout=10, logger=self.logger)
             df_output = SSHHelper.exec_command(client, "df -h", timeout=10, logger=self.logger)
 
-            # Explicit settle delay before sampling CPU. SSH login itself
-            # (sshd fork, PAM, key exchange) plus the parallel Docker/log
-            # collectors connecting to the same host produce a CPU spike that
-            # otherwise dominates the measurement window on idle hosts.
+            # Load average is the primary CPU signal: the kernel maintains it
+            # over 1/5/15 minutes, so it reflects sustained pressure and cannot
+            # be skewed by whatever happens during our own SSH session.
+            loadavg_output = SSHHelper.exec_command(
+                client, "cat /proc/loadavg", timeout=10, logger=self.logger
+            )
+            nproc_output = SSHHelper.exec_command(
+                client, "nproc", timeout=10, logger=self.logger
+            )
+
+            # Short settle so SSH login cost falls outside the spot sample.
             time.sleep(self.CPU_SETTLE_SECONDS)
 
-            # CPU: two /proc/stat snapshots with a local sleep in between.
-            # Python-side sleep avoids depending on the remote PATH having
-            # 'sleep'. A wider window further dilutes any residual overhead
-            # from parallel commands still running on this host.
+            # Instantaneous CPU: two /proc/stat snapshots with a local sleep in
+            # between. Python-side sleep avoids depending on the remote PATH
+            # having 'sleep'. Reported for visibility, but too short a window to
+            # alarm on — a single cron job or log rotation saturates it.
             stat_reading1 = SSHHelper.exec_command(
                 client, "head -1 /proc/stat", timeout=10, logger=self.logger
             )
@@ -156,9 +171,15 @@ class VPSCollector(BaseCollector):
             cpu_usage = self._parse_cpu(cpu_stat_output)
             ram_usage = self._parse_memory(free_output)
             disk_free = self._parse_disk(df_output)
+            load_1, load_5, load_15 = self._parse_loadavg(loadavg_output)
+            cpu_count = self._parse_nproc(nproc_output)
 
-            # Determine status for each metric
-            cpu_status = self._determine_status("cpu", cpu_usage, higher_is_worse=True)
+            # Load per core: 1.0 means the CPUs are exactly saturated.
+            load_per_core = load_5 / cpu_count
+
+            # Determine status for each metric. CPU status comes from load
+            # average, not the spot sample.
+            cpu_status = self._load_status(load_per_core)
             ram_status = self._determine_status("ram", ram_usage, higher_is_worse=True)
             disk_status = self._determine_status("disk_free", disk_free, higher_is_worse=False)
 
@@ -176,12 +197,21 @@ class VPSCollector(BaseCollector):
                 target_name=config.name,
                 status=overall_status,
                 metrics={
-                    "cpu_usage_pct": round(cpu_usage, 1),
+                    "load_per_core": round(load_per_core, 2),
+                    "load_1m": round(load_1, 2),
+                    "load_5m": round(load_5, 2),
+                    "load_15m": round(load_15, 2),
+                    "cpu_count": cpu_count,
+                    "cpu_sample_pct": round(cpu_usage, 1),
                     "ram_usage_pct": round(ram_usage, 1),
                     "disk_free_pct": round(disk_free, 1),
                     "host": config.host
                 },
-                message=f"CPU: {cpu_usage:.1f}%, RAM: {ram_usage:.1f}%, Disk free: {disk_free:.1f}%"
+                message=(
+                    f"Load: {load_per_core:.2f}/core ({load_1:.2f}, {load_5:.2f}, "
+                    f"{load_15:.2f} over 1/5/15m on {cpu_count} vCPU), "
+                    f"RAM: {ram_usage:.1f}%, Disk free: {disk_free:.1f}%"
+                )
             )
 
         except ImportError as e:
@@ -210,6 +240,82 @@ class VPSCollector(BaseCollector):
         finally:
             if client:
                 SSHHelper.close_client(client, self.logger)
+
+    def _load_status(self, load_per_core: float) -> HealthStatus:
+        """
+        Determine CPU health from 5-minute load average per core.
+
+        Load per core is the run-queue length normalized by CPU count: 1.0 means
+        the CPUs are exactly saturated, above 1.0 means work is queuing. This is
+        used instead of a CPU percentage because a percentage sampled over a few
+        seconds cannot distinguish a saturated host from a brief burst.
+
+        Thresholds come from `load_red`/`load_yellow` when configured, so the
+        defaults below can be tuned per deployment.
+
+        Args:
+            load_per_core: 5-minute load average divided by CPU count
+
+        Returns:
+            HealthStatus: GREEN, YELLOW, or RED
+        """
+        red = self.thresholds.get("load_red", self.DEFAULT_LOAD_RED)
+        yellow = self.thresholds.get("load_yellow", self.DEFAULT_LOAD_YELLOW)
+
+        if load_per_core >= red:
+            return HealthStatus.RED
+        if load_per_core >= yellow:
+            return HealthStatus.YELLOW
+        return HealthStatus.GREEN
+
+    def _parse_loadavg(self, loadavg_output: str) -> tuple:
+        """
+        Parse the 1/5/15-minute load averages from /proc/loadavg.
+
+        /proc/loadavg format:
+            0.52 0.58 0.59 1/1234 56789
+
+        Args:
+            loadavg_output: Contents of /proc/loadavg
+
+        Returns:
+            tuple: (load_1m, load_5m, load_15m) as floats
+
+        Raises:
+            ValueError: If parsing fails
+        """
+        parts = loadavg_output.strip().split()
+
+        if len(parts) < 3:
+            raise ValueError(f"Cannot parse /proc/loadavg: {loadavg_output[:200]}")
+
+        try:
+            return float(parts[0]), float(parts[1]), float(parts[2])
+        except ValueError as e:
+            raise ValueError(f"Cannot parse /proc/loadavg values: {e}")
+
+    def _parse_nproc(self, nproc_output: str) -> int:
+        """
+        Parse the CPU count from nproc output.
+
+        Args:
+            nproc_output: Output from 'nproc'
+
+        Returns:
+            int: Number of CPUs (at least 1)
+
+        Raises:
+            ValueError: If parsing fails
+        """
+        try:
+            count = int(nproc_output.strip())
+        except ValueError as e:
+            raise ValueError(f"Cannot parse nproc output: {e}")
+
+        if count < 1:
+            raise ValueError(f"Implausible CPU count from nproc: {count}")
+
+        return count
 
     def _parse_cpu(self, stat_output: str) -> float:
         """

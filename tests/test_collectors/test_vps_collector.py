@@ -16,8 +16,15 @@ def mock_ssh_outputs():
     /proc/stat cpu line fields: user nice system idle iowait irq softirq steal
     Two separate readings simulate the two 'head -1 /proc/stat' calls.
     With delta total=200 and delta idle=159 → CPU = (200-159)/200*100 = 20.5%
+
+    Command order per server: free, df, loadavg, nproc, stat1, stat2.
     """
     return {
+        # 0.40 load over 2 cores = 0.20 per core → GREEN
+        'loadavg': "0.35 0.40 0.38 1/512 12345\n",
+        # 4.20 load over 2 cores = 2.10 per core → RED
+        'loadavg_high': "4.10 4.20 4.15 9/512 12345\n",
+        'nproc': "2\n",
         # ~20.5% CPU: delta user=30, nice=0, system=11, idle=150, iowait=9
         'cpu_stat_1': "cpu  10000 0 5000 80000 500 0 0 0 0 0\n",
         'cpu_stat_2': "cpu  10030 0 5011 80150 509 0 0 0 0 0\n",
@@ -56,6 +63,8 @@ async def test_vps_collector_success(vps_configs, thresholds, logger, mock_ssh_o
             outputs.extend([
                 mock_ssh_outputs['free'],
                 mock_ssh_outputs['df'],
+                mock_ssh_outputs['loadavg'],
+                mock_ssh_outputs['nproc'],
                 mock_ssh_outputs['cpu_stat_1'],
                 mock_ssh_outputs['cpu_stat_2'],
             ])
@@ -73,14 +82,15 @@ async def test_vps_collector_success(vps_configs, thresholds, logger, mock_ssh_o
             assert result.collector_name == "vps"
             assert result.target_name == vps_configs[i].name
             assert result.status in [HealthStatus.GREEN, HealthStatus.YELLOW]
-            assert "cpu_usage_pct" in result.metrics
+            assert "load_per_core" in result.metrics
+            assert "cpu_sample_pct" in result.metrics
             assert "ram_usage_pct" in result.metrics
             assert "disk_free_pct" in result.metrics
 
 
 @pytest.mark.asyncio
-async def test_vps_collector_high_cpu(vps_configs, thresholds, logger, mock_ssh_outputs):
-    """Test VPS with high CPU usage (RED)."""
+async def test_vps_collector_high_load(vps_configs, thresholds, logger, mock_ssh_outputs):
+    """Test VPS with sustained high load average (RED)."""
     collector = VPSCollector([vps_configs[0]], thresholds, logger)
 
     with patch('src.collectors.vps_collector.SSHHelper') as mock_ssh, \
@@ -92,17 +102,53 @@ async def test_vps_collector_high_cpu(vps_configs, thresholds, logger, mock_ssh_
         mock_ssh.exec_command.side_effect = [
             mock_ssh_outputs['free'],
             mock_ssh_outputs['df'],
-            mock_ssh_outputs['cpu_stat_high_1'],
-            mock_ssh_outputs['cpu_stat_high_2'],
+            mock_ssh_outputs['loadavg_high'],
+            mock_ssh_outputs['nproc'],
+            mock_ssh_outputs['cpu_stat_1'],
+            mock_ssh_outputs['cpu_stat_2'],
         ]
 
         # Execute
         results = await collector.collect()
 
-        # Verify RED status for high CPU
+        # Verify RED status for sustained load
         assert len(results) == 1
         assert results[0].status == HealthStatus.RED
-        assert results[0].metrics["cpu_usage_pct"] >= thresholds["cpu_red"]
+        assert results[0].metrics["load_per_core"] >= VPSCollector.DEFAULT_LOAD_RED
+
+
+@pytest.mark.asyncio
+async def test_vps_collector_cpu_spike_does_not_alarm(
+    vps_configs, thresholds, logger, mock_ssh_outputs
+):
+    """A momentary 95% CPU spike must not trip RED when load average is low.
+
+    This is the regression guard for the false CPU alarms: a short /proc/stat
+    sample saturates during any brief burst (including the agent's own SSH
+    work), so status is driven by load average instead.
+    """
+    collector = VPSCollector([vps_configs[0]], thresholds, logger)
+
+    with patch('src.collectors.vps_collector.SSHHelper') as mock_ssh, \
+         patch('src.collectors.vps_collector.time') as mock_time:
+        mock_client = MagicMock()
+        mock_ssh.create_client.return_value = mock_client
+        mock_ssh.is_available.return_value = True
+
+        mock_ssh.exec_command.side_effect = [
+            mock_ssh_outputs['free'],
+            mock_ssh_outputs['df'],
+            mock_ssh_outputs['loadavg'],          # calm 5m average
+            mock_ssh_outputs['nproc'],
+            mock_ssh_outputs['cpu_stat_high_1'],  # but ~95% in the spot sample
+            mock_ssh_outputs['cpu_stat_high_2'],
+        ]
+
+        results = await collector.collect()
+
+        assert len(results) == 1
+        assert results[0].metrics["cpu_sample_pct"] >= 90
+        assert results[0].status == HealthStatus.GREEN
 
 
 @pytest.mark.asyncio
@@ -123,6 +169,8 @@ async def test_vps_collector_low_disk(vps_configs, thresholds, logger, mock_ssh_
         mock_ssh.exec_command.side_effect = [
             mock_ssh_outputs['free'],
             low_disk_output,
+            mock_ssh_outputs['loadavg'],
+            mock_ssh_outputs['nproc'],
             mock_ssh_outputs['cpu_stat_1'],
             mock_ssh_outputs['cpu_stat_2'],
         ]
@@ -221,6 +269,8 @@ Mem:    8000   6000   2000     100      500    1000"""
         mock_ssh.exec_command.side_effect = [
             alt_free,
             "Filesystem     Size  Used Avail Use% Mounted on\n/dev/sda1       50G   30G   20G  60% /",
+            "0.10 0.15 0.12 1/99 4242\n",  # loadavg without trailing newline variance
+            "1\n",                          # single-core host
             alt_cpu_stat_1,
             alt_cpu_stat_2,
         ]
@@ -253,6 +303,8 @@ async def test_vps_collector_parallel_execution(vps_configs, thresholds, logger,
             outputs.extend([
                 mock_ssh_outputs['free'],
                 mock_ssh_outputs['df'],
+                mock_ssh_outputs['loadavg'],
+                mock_ssh_outputs['nproc'],
                 mock_ssh_outputs['cpu_stat_1'],
                 mock_ssh_outputs['cpu_stat_2'],
             ])

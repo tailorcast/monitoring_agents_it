@@ -91,10 +91,16 @@ targets:
 # Health Thresholds
 thresholds:
   # CPU and RAM (higher is worse)
-  cpu_red: 90        # % usage to trigger RED status
+  cpu_red: 90        # % usage to trigger RED status (EC2, from CloudWatch)
   cpu_yellow: 70     # % usage to trigger YELLOW status
   ram_red: 90
   ram_yellow: 70
+
+  # VPS CPU health: 5-minute load average per core. 1.0 = CPUs exactly
+  # saturated. Used instead of a CPU percentage because a few-second sample
+  # cannot distinguish a saturated host from a brief burst.
+  load_red: 2.0      # sustained 2x oversubscription
+  load_yellow: 1.0   # at capacity
 
   # Disk space (lower is worse)
   disk_free_red: 10      # % free space to trigger RED

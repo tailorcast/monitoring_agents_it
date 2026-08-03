@@ -49,7 +49,7 @@ python scripts/visualize_workflow.py
 
 Sequential nodes: `aggregate` → `history_filter` → `analyze` → `generate_report` → `send_telegram`
 
-- **aggregate**: All collectors run in parallel via `asyncio.gather()`. Each returns a `CollectorResult` with status `GREEN/YELLOW/RED/UNKNOWN`. Failures are caught per-collector — partial failures never halt the workflow.
+- **aggregate**: All collectors run in parallel via `asyncio.gather()`. Each returns a `CollectorResult` with status `GREEN/YELLOW/RED/UNKNOWN`. Failures are caught per-collector — partial failures never halt the workflow. SSH collectors (VPS, Docker, DockerLogs) serialize per target host via `collectors/host_lock.py`, so their own work is not measured as that host's load; different hosts still run concurrently.
 - **history_filter**: Dampens first-occurrence threshold breaches from RED to YELLOW. Binary failures (connection errors, container down) pass through unchanged. Only numeric threshold metrics (CPU, RAM, disk, API response time) are eligible for dampening.
 - **analyze**: Budget-checked call to Bedrock (Claude Haiku). Skipped if no issues or daily budget exceeded. Returns structured root cause analysis and recommendations.
 - **generate_report**: Formats collected results into a Telegram message.
@@ -63,7 +63,9 @@ Single YAML file (`config/config.yaml`) with `${ENV_VAR}` substitution. Loaded v
 
 ### Collectors (`src/collectors/`)
 
-All extend `BaseCollector` in `base.py`, which provides the `@safe_collect` decorator for error isolation. SSH-based collectors (VPS, Docker) use `ssh_helper.py` for connection management. Each collector maps its raw metrics to `HealthStatus` using threshold values from config.
+All extend `BaseCollector` in `base.py`, which provides the `@safe_collect` decorator for error isolation. SSH-based collectors (VPS, Docker) use `ssh_helper.py` for connection management and `host_lock.py` to serialize per host. Each collector maps its raw metrics to `HealthStatus` using threshold values from config.
+
+VPS CPU health is judged on **5-minute load average per core** (`load_red`/`load_yellow`, where 1.0 means the CPUs are exactly saturated), not a CPU percentage. A percentage sampled over a few seconds cannot distinguish a saturated host from a brief burst, which produced persistent false RED alarms. The instantaneous sample is still reported as `cpu_sample_pct` for context but is never alarmed on. EC2 CPU still uses `cpu_red`/`cpu_yellow` since it comes from CloudWatch averages.
 
 Collectors are only instantiated if the corresponding targets section is non-empty in config. Docker uses the same VPS server configs as the VPS collector.
 

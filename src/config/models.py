@@ -91,6 +91,11 @@ class ThresholdsConfig(BaseModel):
     """System health thresholds configuration."""
     cpu_red: int = Field(default=90, ge=0, le=100)
     cpu_yellow: int = Field(default=70, ge=0, le=100)
+    # VPS CPU health is judged on 5-minute load average per core rather than a
+    # CPU percentage: 1.0 means the CPUs are exactly saturated. A short CPU
+    # sample cannot tell a saturated host from a brief burst.
+    load_red: float = Field(default=2.0, gt=0)
+    load_yellow: float = Field(default=1.0, gt=0)
     ram_red: int = Field(default=90, ge=0, le=100)
     ram_yellow: int = Field(default=70, ge=0, le=100)
     disk_free_red: int = Field(default=10, ge=0, le=100)

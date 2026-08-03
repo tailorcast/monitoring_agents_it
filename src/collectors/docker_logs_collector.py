@@ -9,6 +9,7 @@ from ..utils.status import HealthStatus
 from ..utils.metrics import CollectorResult
 from ..utils.sanitize import sanitize_error
 from .base import BaseCollector, safe_collect
+from .host_lock import get_host_lock
 from .ssh_helper import SSHHelper
 
 
@@ -65,8 +66,11 @@ class DockerLogsCollector(BaseCollector):
         return final_results
 
     async def _collect_target_async(self, target: DockerLogsTargetConfig) -> List[CollectorResult]:
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self._collect_target, target)
+        # Log scanning is the heaviest SSH work we do; serialize it with the
+        # other collectors on this host so it is not measured as host load.
+        async with get_host_lock(target.host):
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(None, self._collect_target, target)
 
     def _collect_target(self, target: DockerLogsTargetConfig) -> List[CollectorResult]:
         client = None

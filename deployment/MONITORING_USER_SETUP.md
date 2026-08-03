@@ -6,7 +6,7 @@ Create a dedicated least-privilege SSH user for the monitoring agent instead of 
 
 | Collector | Commands |
 |-----------|----------|
-| **VPS** | `top -bn1`, `free -m`, `df -h` |
+| **VPS** | `free -m`, `df -h`, `cat /proc/loadavg`, `nproc`, `head -1 /proc/stat` |
 | **Docker** | `docker ps -a --format "{{json .}}"` |
 | **Docker Logs** | `docker compose -f <file> logs --since 4h \| grep -ci ...` |
 
@@ -86,7 +86,7 @@ For most self-hosted setups, **Option A** is the practical choice if you trust t
 Still as admin on the server, test as the new user:
 
 ```bash
-sudo -u monitoring bash -c 'top -bn1 | head -5'
+sudo -u monitoring bash -c 'cat /proc/loadavg && nproc && head -1 /proc/stat'
 sudo -u monitoring bash -c 'free -m'
 sudo -u monitoring bash -c 'df -h'
 sudo -u monitoring bash -c 'docker ps -a --format "{{json .}}"'

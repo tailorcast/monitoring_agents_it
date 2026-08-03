@@ -23,7 +23,9 @@ class MetricHistoryStore:
     # Only threshold-based numeric metrics are included. Binary checks
     # (Docker container down, DB connection failure, S3 inaccessible) are absent.
     THRESHOLD_METRICS = {
-        ("vps", "cpu_usage_pct"):    ("cpu_red", True),
+        # VPS CPU health is load-average based; cpu_sample_pct is reported for
+        # context but never alarmed on, so it is deliberately absent here.
+        ("vps", "load_per_core"):    ("load_red", True),
         ("vps", "ram_usage_pct"):    ("ram_red", True),
         ("vps", "disk_free_pct"):    ("disk_free_red", False),
         ("ec2", "cpu_usage_pct"):    ("cpu_red", True),

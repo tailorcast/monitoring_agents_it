@@ -32,6 +32,8 @@ def thresholds():
     return {
         "cpu_red": 90,
         "cpu_yellow": 70,
+        "load_red": 2.0,
+        "load_yellow": 1.0,
         "ram_red": 90,
         "ram_yellow": 70,
         "disk_free_red": 10,
@@ -159,7 +161,7 @@ class TestGetRedMetricKeys:
     def test_connection_failure_bypasses_dampening(self, store, thresholds):
         result = make_result(
             "vps", "my-server",
-            {"cpu_usage_pct": 95},
+            {"load_per_core": 2.5},
             error="Connection refused",
         )
         keys = store.get_red_metric_keys(result, thresholds)
@@ -182,13 +184,20 @@ class TestGetRedMetricKeys:
         keys = store.get_red_metric_keys(result, thresholds)
         assert keys == []
 
-    def test_vps_cpu_above_threshold(self, store, thresholds):
-        result = make_result("vps", "kz-vps-01", {"cpu_usage_pct": 95})
+    def test_vps_load_above_threshold(self, store, thresholds):
+        result = make_result("vps", "kz-vps-01", {"load_per_core": 2.5})
         keys = store.get_red_metric_keys(result, thresholds)
-        assert keys == ["vps:kz-vps-01:cpu_usage_pct"]
+        assert keys == ["vps:kz-vps-01:load_per_core"]
 
-    def test_vps_cpu_below_threshold_not_included(self, store, thresholds):
-        result = make_result("vps", "kz-vps-01", {"cpu_usage_pct": 50})
+    def test_vps_load_below_threshold_not_included(self, store, thresholds):
+        result = make_result("vps", "kz-vps-01", {"load_per_core": 0.5})
+        keys = store.get_red_metric_keys(result, thresholds)
+        assert keys == []
+
+    def test_vps_cpu_sample_is_never_dampening_eligible(self, store, thresholds):
+        # cpu_sample_pct is a spot sample reported for context only — a brief
+        # burst must never register as an incident.
+        result = make_result("vps", "kz-vps-01", {"cpu_sample_pct": 99})
         keys = store.get_red_metric_keys(result, thresholds)
         assert keys == []
 
@@ -216,11 +225,11 @@ class TestGetRedMetricKeys:
     def test_multiple_metrics_both_breached(self, store, thresholds):
         result = make_result(
             "vps", "my-server",
-            {"cpu_usage_pct": 95, "ram_usage_pct": 92},
+            {"load_per_core": 2.5, "ram_usage_pct": 92},
         )
         keys = store.get_red_metric_keys(result, thresholds)
         assert set(keys) == {
-            "vps:my-server:cpu_usage_pct",
+            "vps:my-server:load_per_core",
             "vps:my-server:ram_usage_pct",
         }
 
@@ -232,9 +241,9 @@ class TestGetRedMetricKeys:
 
     def test_threshold_at_exact_boundary_higher_is_worse(self, store, thresholds):
         # cpu_red = 90 → exactly 90 should be RED
-        result = make_result("vps", "my-server", {"cpu_usage_pct": 90})
+        result = make_result("vps", "my-server", {"load_per_core": 2.0})
         keys = store.get_red_metric_keys(result, thresholds)
-        assert "vps:my-server:cpu_usage_pct" in keys
+        assert "vps:my-server:load_per_core" in keys
 
     def test_threshold_at_exact_boundary_lower_is_worse(self, store, thresholds):
         # disk_free_red = 10 → exactly 10 should be RED
@@ -254,7 +263,7 @@ class TestDampeningScenarios:
     """
 
     def test_first_occurrence_should_downgrade(self, store, thresholds):
-        result = make_result("vps", "kz-vps-01", {"cpu_usage_pct": 95})
+        result = make_result("vps", "kz-vps-01", {"load_per_core": 2.5})
         keys = store.get_red_metric_keys(result, thresholds)
         assert keys  # threshold keys found
 
@@ -265,7 +274,7 @@ class TestDampeningScenarios:
             store.increment(k)
 
     def test_second_occurrence_stays_red(self, store, thresholds):
-        result = make_result("vps", "kz-vps-01", {"cpu_usage_pct": 95})
+        result = make_result("vps", "kz-vps-01", {"load_per_core": 2.5})
         keys = store.get_red_metric_keys(result, thresholds)
 
         # Simulate first run
@@ -287,7 +296,7 @@ class TestDampeningScenarios:
         """
         result = make_result(
             "vps", "my-server",
-            {"cpu_usage_pct": 95, "ram_usage_pct": 92},
+            {"load_per_core": 2.5, "ram_usage_pct": 92},
         )
         keys = store.get_red_metric_keys(result, thresholds)
         assert len(keys) == 2
@@ -303,7 +312,7 @@ class TestDampeningScenarios:
     def test_connection_failure_bypasses_dampening(self, store, thresholds):
         result = make_result(
             "vps", "my-server",
-            {"cpu_usage_pct": 95},
+            {"load_per_core": 2.5},
             error="SSH timeout",
         )
         keys = store.get_red_metric_keys(result, thresholds)
@@ -320,7 +329,7 @@ class TestDampeningScenarios:
     def test_green_result_untouched(self, store, thresholds):
         result = make_result(
             "vps", "kz-vps-01",
-            {"cpu_usage_pct": 30},
+            {"load_per_core": 0.3},
             status=HealthStatus.GREEN,
         )
         # Workflow only calls get_red_metric_keys for RED results,

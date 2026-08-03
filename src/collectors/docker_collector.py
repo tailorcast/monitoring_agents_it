@@ -10,6 +10,7 @@ from ..utils.status import HealthStatus
 from ..utils.metrics import CollectorResult
 from ..utils.sanitize import sanitize_error
 from .base import BaseCollector, safe_collect
+from .host_lock import get_host_lock
 from .ssh_helper import SSHHelper
 
 
@@ -93,9 +94,11 @@ class DockerCollector(BaseCollector):
         Returns:
             List[CollectorResult]: Container check results from this server
         """
-        # Run blocking SSH calls in thread pool
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self._collect_server, config)
+        # Serialize with the other collectors targeting this host so their work
+        # does not distort the VPS collector's load measurement.
+        async with get_host_lock(config.host):
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(None, self._collect_server, config)
 
     def _collect_server(self, config: VPSServerConfig) -> List[CollectorResult]:
         """
