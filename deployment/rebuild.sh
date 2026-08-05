@@ -50,32 +50,68 @@ else
 fi
 echo ""
 
-# Step 2: Remove old image (optional, uncomment if you want clean builds)
-# echo -e "${YELLOW}[2/4] Removing old image...${NC}"
-# docker rmi ${IMAGE_NAME}:${IMAGE_TAG} 2>/dev/null || true
-# echo ""
+# Step 2+3: Build and start in one step.
+#
+# Build via `compose up --build` rather than a separate `docker build`: compose
+# only runs the image named by the compose file, so a separately built and
+# tagged image can be silently ignored, leaving stale code running. One command
+# means the image built and the image started cannot diverge.
+#
+# Pass --no-cache to force a clean rebuild:  ./deployment/rebuild.sh --no-cache
+BUILD_ARGS=""
+if [ "$1" = "--no-cache" ]; then
+    BUILD_ARGS="--no-cache"
+    echo -e "${YELLOW}Clean rebuild requested (--no-cache)${NC}"
+    echo ""
+fi
 
-# Step 3: Build new image
-echo -e "${YELLOW}[2/4] Building Docker image...${NC}"
-docker build -t ${IMAGE_NAME}:${IMAGE_TAG} -f deployment/Dockerfile . || {
-    echo -e "${RED}ERROR: Docker build failed${NC}"
+# Stamp the current revision into the image so the verify step can prove which
+# code is running. Falls back to "unknown" outside a git checkout.
+GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+export GIT_SHA
+
+echo -e "${YELLOW}[2/4] Building image and starting container (${GIT_SHA})...${NC}"
+if [ -n "${BUILD_ARGS}" ]; then
+    docker compose -f ${COMPOSE_FILE} build ${BUILD_ARGS} || {
+        echo -e "${RED}ERROR: Docker build failed${NC}"
+        exit 1
+    }
+fi
+docker compose -f ${COMPOSE_FILE} up -d --build || {
+    echo -e "${RED}ERROR: Build or start failed${NC}"
     exit 1
 }
-echo -e "${GREEN}✓ Image built successfully${NC}"
+echo -e "${GREEN}✓ Image built and container started${NC}"
 echo ""
 
-# Step 4: Start new container
-echo -e "${YELLOW}[3/4] Starting new container...${NC}"
-docker compose -f ${COMPOSE_FILE} up -d || {
-    echo -e "${RED}ERROR: Failed to start container${NC}"
-    exit 1
-}
-echo -e "${GREEN}✓ Container started${NC}"
-echo ""
-
-# Step 5: Verify
-echo -e "${YELLOW}[4/4] Verifying deployment...${NC}"
+# Step 3: Confirm the running container has the code we just built
+echo -e "${YELLOW}[3/4] Verifying running revision...${NC}"
 sleep 3
+
+RUNNING_SHA="$(docker compose -f ${COMPOSE_FILE} exec -T monitoring-agent \
+    printenv GIT_SHA 2>/dev/null | tr -d '\r')" || RUNNING_SHA=""
+
+if [ "${RUNNING_SHA}" = "${GIT_SHA}" ]; then
+    echo -e "${GREEN}✓ Running revision matches working tree (${RUNNING_SHA})${NC}"
+elif [ -z "${RUNNING_SHA}" ]; then
+    echo -e "${YELLOW}WARNING: could not read GIT_SHA from the container${NC}"
+    echo "  The container may still be starting, or predates revision stamping."
+else
+    echo -e "${RED}✗ STALE DEPLOY: container is running ${RUNNING_SHA}, expected ${GIT_SHA}${NC}"
+    echo ""
+    echo "The container did not pick up the new image. Try:"
+    echo "  ./deployment/rebuild.sh --no-cache"
+    exit 1
+fi
+
+if [ -n "$(git status --porcelain src/ 2>/dev/null)" ]; then
+    echo -e "${YELLOW}NOTE: src/ has uncommitted changes — they are in the image,${NC}"
+    echo -e "${YELLOW}      but ${GIT_SHA} alone does not describe what is running.${NC}"
+fi
+echo ""
+
+# Step 4: Confirm the container is still up (it may exit on a config error)
+echo -e "${YELLOW}[4/4] Verifying deployment...${NC}"
 
 if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
     echo -e "${GREEN}✓ Container is running${NC}"

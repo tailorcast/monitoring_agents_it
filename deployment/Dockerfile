@@ -25,6 +25,13 @@ RUN mkdir -p /app/deployment && \
 COPY src/ /app/src/
 COPY config/config.example.yaml /app/config/config.example.yaml
 
+# Stamp the source revision into the image so a deploy can prove which code it
+# is running. Without this, a container started from a stale image looks
+# identical to a correctly deployed one. Declared after the COPY above so a
+# changed GIT_SHA does not invalidate the dependency layers.
+ARG GIT_SHA=unknown
+ENV GIT_SHA=${GIT_SHA}
+
 # Copy entrypoint script
 COPY deployment/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh

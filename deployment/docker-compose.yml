@@ -2,9 +2,16 @@ version: '3.8'
 
 services:
   monitoring-agent:
+    # Pin the image name. Without this, compose invents its own name from the
+    # directory it runs in and ignores any image built separately — which
+    # silently starts stale code after a rebuild.
+    image: monitoring-agent:latest
     build:
       context: ..
       dockerfile: deployment/Dockerfile
+      args:
+        # Set by rebuild.sh so the running container can report its revision.
+        GIT_SHA: ${GIT_SHA:-unknown}
     container_name: monitoring-agent
 
     # Mount configuration and secrets
