@@ -34,6 +34,7 @@ Tests use **real configuration** from `config/config.yaml` via shared pytest fix
 - `database_configs` - Loads databases from config
 - `llm_configs` - Loads LLM models from config
 - `s3_configs` - Loads S3 buckets from config
+- `ssl_configs` - Loads TLS certificate targets from config
 - `thresholds` - Loads system thresholds from config
 
 ### Benefits

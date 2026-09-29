@@ -32,6 +32,7 @@ from .collectors.database_collector import DatabaseCollector
 from .collectors.llm_collector import LLMCollector
 from .collectors.s3_collector import S3Collector
 from .collectors.docker_logs_collector import DockerLogsCollector
+from .collectors.ssl_collector import SSLCollector
 
 
 class MonitoringWorkflow:
@@ -41,13 +42,19 @@ class MonitoringWorkflow:
     Coordinates parallel data collection, AI analysis, and report generation.
     """
 
-    def __init__(self, config: MonitoringSystemConfig, logger: logging.Logger = None):
+    def __init__(
+        self,
+        config: MonitoringSystemConfig,
+        logger: logging.Logger = None,
+        dry_run: bool = False
+    ):
         """
         Initialize monitoring workflow.
 
         Args:
             config: System configuration
             logger: Optional logger instance
+            dry_run: If True, build the report but never deliver it
 
         Raises:
             ImportError: If langgraph not installed
@@ -57,6 +64,7 @@ class MonitoringWorkflow:
 
         self.config = config
         self.logger = logger or setup_logger("workflow")
+        self.dry_run = dry_run
 
         # Setup LangSmith tracing if enabled
         self._setup_langsmith()
@@ -138,6 +146,13 @@ class MonitoringWorkflow:
         if config.targets.docker_logs:
             self.collectors["dockerlogs"] = DockerLogsCollector(
                 config.targets.docker_logs,
+                thresholds_dict,
+                self.logger
+            )
+
+        if config.targets.ssl_certificates:
+            self.collectors["ssl"] = SSLCollector(
+                config.targets.ssl_certificates,
                 thresholds_dict,
                 self.logger
             )
@@ -394,6 +409,12 @@ class MonitoringWorkflow:
 
         if not message:
             self.logger.warning("No Telegram message to send")
+            return {"telegram_sent": False}
+
+        if self.dry_run:
+            # --dry-run must not reach the outside world. main.py logs the
+            # report for preview instead.
+            self.logger.info("DRY RUN - skipping Telegram delivery")
             return {"telegram_sent": False}
 
         self.logger.info("Sending report via Telegram")

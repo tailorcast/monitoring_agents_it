@@ -31,6 +31,11 @@ class MetricHistoryStore:
         ("ec2", "cpu_usage_pct"):    ("cpu_red", True),
         ("ec2", "disk_free_pct"):    ("disk_free_red", False),
         ("api", "response_time_ms"): ("api_timeout_ms", True),
+        # SSL certificate expiry is deliberately absent. days_until_expiry is
+        # monotonic, not a noisy sample, so there is nothing to dampen. Worse,
+        # this store resets daily: listing it here would downgrade the first
+        # report of every day -- including the day a certificate actually
+        # expires -- permanently hiding the RED that matters most.
     }
 
     def __init__(

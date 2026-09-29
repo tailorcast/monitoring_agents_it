@@ -116,14 +116,26 @@ class APICollector(BaseCollector):
 
             response_time_ms = (time.time() - start_time) * 1000
 
+            # A full HTML front page is legitimately slower than a /health
+            # endpoint, so allow a per-endpoint override of the global "slow"
+            # threshold rather than flapping on the pages or hiding real
+            # slowdowns on the health checks.
+            slow_ms = config.slow_ms
+            if slow_ms is None:
+                slow_ms = self.thresholds.get("api_slow_ms", 2000)
+
+            red_ms = config.red_ms
+            if red_ms is None:
+                red_ms = self.thresholds.get("api_timeout_ms", 5000)
+
             # Determine status
             if response.status_code != 200:
                 status = HealthStatus.RED
                 message = f"HTTP {response.status_code}"
-            elif response_time_ms > self.thresholds.get("api_timeout_ms", 5000):
+            elif response_time_ms > red_ms:
                 status = HealthStatus.RED
                 message = f"Timeout ({response_time_ms:.0f}ms)"
-            elif response_time_ms > self.thresholds.get("api_slow_ms", 2000):
+            elif response_time_ms > slow_ms:
                 status = HealthStatus.YELLOW
                 message = f"Slow ({response_time_ms:.0f}ms)"
             else:

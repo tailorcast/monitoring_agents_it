@@ -76,6 +76,14 @@ def s3_configs(config):
 
 
 @pytest.fixture
+def ssl_configs(config):
+    """Get SSL certificate target configurations from config.yaml."""
+    if not config.targets.ssl_certificates:
+        pytest.skip("No SSL certificate targets configured in config.yaml")
+    return config.targets.ssl_certificates
+
+
+@pytest.fixture
 def thresholds(config):
     """Get system thresholds from config.yaml."""
     return config.thresholds.__dict__

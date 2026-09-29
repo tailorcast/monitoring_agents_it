@@ -62,7 +62,7 @@ class MonitoringApp:
 
         # Initialize workflow
         self.logger.info("Initializing monitoring workflow...")
-        self.workflow = MonitoringWorkflow(self.config, self.logger)
+        self.workflow = MonitoringWorkflow(self.config, self.logger, dry_run=dry_run)
         self.logger.info("Application initialized successfully")
 
     def _load_config(self) -> MonitoringSystemConfig:

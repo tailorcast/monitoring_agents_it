@@ -31,7 +31,14 @@ class APIEndpointConfig(BaseModel):
     """Configuration for API endpoint health checks."""
     url: str
     name: str
-    timeout_ms: Optional[int] = 5000
+    timeout_ms: Optional[int] = 5000   # request deadline given to httpx
+    # Per-endpoint overrides for the global api_slow_ms / api_timeout_ms
+    # *response time* thresholds (distinct from timeout_ms above, which is the
+    # request deadline). A full HTML front page is legitimately slower than a
+    # /health endpoint, so single global thresholds either flap on the pages or
+    # hide real slowdowns on the health checks. None falls back to the global.
+    slow_ms: Optional[int] = None      # response time counted as YELLOW
+    red_ms: Optional[int] = None       # response time counted as RED
 
     @field_validator('url')
     @classmethod
@@ -87,6 +94,25 @@ class DockerLogsTargetConfig(BaseModel):
     error_patterns: Optional[str] = "error|exception|fatal"
 
 
+class SSLCertTargetConfig(BaseModel):
+    """Configuration for TLS certificate expiry monitoring."""
+    host: str            # bare DNS name; Unicode IDN accepted as-is
+    name: str
+    port: int = Field(default=443, ge=1, le=65535)
+    timeout_s: float = Field(default=10.0, gt=0, le=60)
+
+    @field_validator('host')
+    @classmethod
+    def validate_host(cls, v: str) -> str:
+        """Reject URLs -- this is a bare DNS name, not an endpoint."""
+        v = v.strip()
+        if not v:
+            raise ValueError('host must not be empty')
+        if '://' in v or '/' in v:
+            raise ValueError('host must be a bare DNS name, not a URL')
+        return v
+
+
 class ThresholdsConfig(BaseModel):
     """System health thresholds configuration."""
     cpu_red: int = Field(default=90, ge=0, le=100)
@@ -106,6 +132,13 @@ class ThresholdsConfig(BaseModel):
     docker_logs_errors_4h_yellow: int = Field(default=20, ge=0)
     docker_logs_errors_24h_red: int = Field(default=200, ge=0)
     docker_logs_errors_24h_yellow: int = Field(default=100, ge=0)
+    # Days until TLS certificate expiry -- lower is worse, like disk_free.
+    # Let's Encrypt issues 90-day certs and certbot renews at 30 days
+    # remaining, retrying twice a day, so a healthy cert routinely sits in the
+    # 30-40 day band and alerting there is pure noise. Reaching 21 days means
+    # renewal has already been failing for over a week.
+    ssl_expiry_days_red: int = Field(default=7, ge=0)
+    ssl_expiry_days_yellow: int = Field(default=21, ge=0)
 
     @field_validator('cpu_yellow', 'ram_yellow', 'disk_free_yellow')
     @classmethod
@@ -154,6 +187,7 @@ class TargetsConfig(BaseModel):
     llm_models: List[LLMModelConfig] = Field(default_factory=list)
     s3_buckets: List[S3BucketConfig] = Field(default_factory=list)
     docker_logs: List[DockerLogsTargetConfig] = Field(default_factory=list)
+    ssl_certificates: List[SSLCertTargetConfig] = Field(default_factory=list)
 
 
 class MonitoringSystemConfig(BaseModel):

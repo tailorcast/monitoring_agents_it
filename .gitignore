@@ -7,7 +7,11 @@ __pycache__/
 .env
 
 # Configuration
-config/config.yaml
+# Real config holds live hostnames and credentials. Only the template is
+# tracked, so ignore every variant (config.test.yaml, config.local.yaml, ...)
+# rather than just the default filename.
+config/config*.yaml
+!config/config.example.yaml
 
 # Secrets
 /secrets/

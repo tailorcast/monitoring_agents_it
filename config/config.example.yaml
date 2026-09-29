@@ -88,6 +88,26 @@ targets:
     - bucket: "product-gen-media-tailorcast"
       region: "us-east-1"
 
+  # TLS Certificate Expiry
+  # Proactive lead-time warning. Every hostname has its own certificate with its
+  # own expiry date, so list every hostname you serve -- you cannot infer one
+  # from another. This complements api_endpoints, which only goes RED once a
+  # certificate has already expired and downtime has begun.
+  # Implicit-TLS ports only (443, 8443, 465, 993, 995) -- not STARTTLS ports
+  # such as 25, 587 or 5432, which need protocol negotiation first.
+  ssl_certificates:
+    - host: "example.com"
+      name: "Main site cert"
+      port: 443           # optional, this is the default
+      timeout_s: 10.0     # optional, this is the default
+    - host: "app.example.com"    # separate cert, separate expiry
+      name: "App cert"
+    - host: "пример.рф"          # IDN: use the Unicode form, not punycode
+      name: "IDN site cert"
+    - host: "admin.example.com"  # non-standard TLS port
+      name: "Admin panel cert"
+      port: 8443
+
 # Health Thresholds
 thresholds:
   # CPU and RAM (higher is worse)
@@ -109,6 +129,18 @@ thresholds:
   # API response times (milliseconds)
   api_timeout_ms: 5000   # Timeout = RED
   api_slow_ms: 2000      # Slow but responding = YELLOW
+                         # Both are response-time thresholds and both can be
+                         # overridden per endpoint (red_ms / slow_ms): full HTML
+                         # pages are legitimately slower than /health endpoints.
+                         # Note these are separate from an endpoint's
+                         # timeout_ms, which is the request deadline itself.
+
+  # TLS certificate days remaining (lower is worse)
+  # Let's Encrypt issues 90-day certs and certbot renews at 30 days remaining,
+  # retrying twice a day. So 30 days left is healthy and mid-renewal -- alerting
+  # there is pure noise. Reaching 21 means renewal has failed for over a week.
+  ssl_expiry_days_red: 7       # a week of lead time to fix by hand
+  ssl_expiry_days_yellow: 21   # renewal is demonstrably stuck
 
   # Docker logs error counts
   docker_logs_errors_4h_red: 50       # Errors in last 4h to trigger RED
